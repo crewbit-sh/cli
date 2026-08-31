@@ -1,0 +1,117 @@
+import { parseArgs } from "node:util";
+import {
+  claudeCliEngine,
+  createLogger,
+  fakeEngine,
+  REFUSED_HANDSHAKE,
+  RUNNER_VERSION,
+  startRunner,
+} from "./index.ts";
+
+const USAGE = `crewbit - execute Crewbit Jobs with your own Claude Code
+
+  --token <token>  credential minted on the server's credentials page, or $CREWBIT_TOKEN
+  --server <url>   where to dial (default wss://d.crewbit.sh/runner/v1)
+  --slots <n>      how many Jobs to run at once (default 1)
+  --fake           replay a recorded stream instead of spending tokens
+  --quiet          only report Job outcomes, not the transcript
+  --version
+`;
+
+const { values } = parseArgs({
+  options: {
+    token: { type: "string" },
+    server: { type: "string", default: "wss://d.crewbit.sh/runner/v1" },
+    slots: { type: "string", default: "1" },
+    fake: { type: "boolean", default: false },
+    quiet: { type: "boolean", default: false },
+    version: { type: "boolean", default: false },
+    help: { type: "boolean", default: false },
+  },
+});
+
+if (values.version) {
+  console.log(RUNNER_VERSION);
+  process.exit(0);
+}
+
+if (values.help) {
+  console.log(USAGE);
+  process.exit(0);
+}
+
+const token = values.token ?? process.env.CREWBIT_TOKEN;
+const log = createLogger("crewbit-runner");
+
+const runner = await startRunner({
+  url: values.server,
+  // The env var is what a service manager sets; the flag is what a human types.
+  token,
+  slots: Number(values.slots),
+  engine: values.fake ? fakeEngine() : claudeCliEngine(),
+  log,
+  // The agent's own stream, through the same logger. Two formats on one stdout
+  // would hand a collector mixed content, and on a server that is the only
+  // record of what the agent did.
+  onEvent: values.quiet
+    ? undefined
+    : (jobId, event) => {
+        if (event.t === "assistant") log.info(event.text, { job_id: jobId, event: "assistant" });
+        else if (event.t === "tool_use") {
+          log.info(`${event.name} ${event.summary ?? ""}`.trim(), {
+            job_id: jobId,
+            event: "tool_use",
+            tool: event.name,
+          });
+        } else if (event.t === "rate_limit") {
+          log.warning("rate limit", {
+            job_id: jobId,
+            event: "rate_limit",
+            rate_limit_type: event.rateLimitType,
+            resets_at: new Date(event.resetsAt * 1000).toISOString(),
+          });
+        }
+      },
+}).catch((cause: Error) => {
+  // A refused upgrade surfaces here. A Bun stack trace tells a human nothing
+  // about the one thing that is usually wrong, which is the credential.
+  //
+  // Unless the server answered the handshake and said no, which it only does for
+  // a reason it names: the credential was good enough to get a socket, so
+  // pointing the operator at the credentials page sends them to the wrong place.
+  const refused = cause.message.startsWith(REFUSED_HANDSHAKE);
+  log.error(cause.message, {
+    url: values.server,
+    ...(refused
+      ? {}
+      : {
+          hint: token
+            ? "the server closed the connection before the handshake: the credential may be revoked, or minted against another server, or the server may not be ready. Its credentials are at /runners"
+            : "no token given: pass --token or set CREWBIT_TOKEN",
+        }),
+  });
+  process.exit(1);
+});
+
+/**
+ * The first signal drains: no new Jobs, and whatever is running finishes. The
+ * second one is a person saying they meant it, and leaves now.
+ *
+ * Leaving at once loses the engine and everything it has not pushed, which is up
+ * to a third of the lease. The Job survives, because the server reclaims it, but
+ * the turns spent on it do not, and a code stage is thirty to ninety of them.
+ */
+let asked = false;
+for (const signal of ["SIGINT", "SIGTERM"] as const) {
+  process.on(signal, () => {
+    if (asked) {
+      log.warning("runner stopping now, giving up what it was holding");
+      process.exit(1);
+    }
+    asked = true;
+    log.info(
+      "runner draining: finishing what it holds, taking nothing new. Signal again to stop now",
+    );
+    void runner.stop({ drain: true }).then(() => process.exit(0));
+  });
+}
