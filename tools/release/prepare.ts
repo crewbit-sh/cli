@@ -30,7 +30,7 @@ const git = (...args: string[]) => execFileSync("git", args, { encoding: "utf8" 
 
 /** The last release, or nothing, in which case the whole history counts. */
 function lastTag(): string | undefined {
-  const tags = git("tag", "--list", "cli-v*", "--sort=-v:refname").split("\n").filter(Boolean);
+  const tags = git("tag", "--list", "v*", "--sort=-v:refname").split("\n").filter(Boolean);
   return tags[0];
 }
 

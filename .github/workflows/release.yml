@@ -20,7 +20,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          # bumpFor reads every commit since the last cli-v* tag. The default
+          # bumpFor reads every commit since the last v* tag. The default
           # checkout is a shallow clone of one commit, which would read as
           # "nothing to release" today and as a wrong, truncated range the day
           # the distance to the last tag grows past what the default keeps.
@@ -89,8 +89,8 @@ jobs:
       - name: Tag it
         if: steps.prepare.outputs.should_release == 'true'
         run: |
-          git tag "cli-v${{ steps.prepare.outputs.version }}"
-          git push origin "cli-v${{ steps.prepare.outputs.version }}"
+          git tag "v${{ steps.prepare.outputs.version }}"
+          git push origin "v${{ steps.prepare.outputs.version }}"
 
       # #148's second criterion, carried over from crewbit-v2: the changelog
       # ships with the binary, not only with the repository.
@@ -111,7 +111,7 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           name: crewbit ${{ steps.prepare.outputs.version }}
-          tag_name: cli-v${{ steps.prepare.outputs.version }}
+          tag_name: v${{ steps.prepare.outputs.version }}
           body_path: release-notes.md
           files: |
             bin/crewbit-macos-arm64

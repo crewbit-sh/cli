@@ -31,7 +31,7 @@ holding before it exits, and a second stop exits immediately.
 
 `.github/workflows/release.yml`, dispatched by hand from the Actions tab.
 Its version comes from a bump computed over the commits since the last
-`cli-v*` tag — `feat:` a minor, `fix:` a patch — written to `package.json`,
+`v*` tag — `feat:` a minor, `fix:` a patch — written to `package.json`,
 `CHANGELOG.md` and `RUNNER_VERSION` before anything is tagged or published.
 
 That is the opposite contract from
