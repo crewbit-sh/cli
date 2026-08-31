@@ -165,13 +165,22 @@ export async function startServerDouble(options: ServerDoubleOptions = {}): Prom
       },
     });
     peer = mine;
-    // `mine`, not the outer `peer`, in both listeners below: a second
+    // `mine`, not the outer `peer`, in both listeners below. A second
     // connection can attach and reassign `peer` before this socket's own
     // "close" (or a straggling "message") fires, and a listener reaching for
-    // the outer variable at that point would act on whichever connection is
-    // current rather than the one that actually raised the event. Measured:
-    // this is what made a test connecting twice in a row hang, because the
-    // first socket's late close cleared the second connection's peer.
+    // shared connection state at that point acts on whichever connection is
+    // current rather than the one that actually raised the event.
+    //
+    // This is a family, not a one-off: `test/harness/fake-runner.ts` in
+    // crewbit-v2 had the same shape from the other direction, a handler
+    // closing over a `const` its own enclosing call had not finished
+    // assigning yet, because a message can arrive before the promise that
+    // sets it up resolves. Both are a listener trusting shared, mutable,
+    // connection-scoped state instead of the specific connection it was
+    // registered for. Measured here: this is what made a test connecting
+    // twice in a row hang, because the first socket's late close cleared the
+    // second connection's peer. Look for this shape again before writing the
+    // next socket adapter in this project.
     socket.on("message", (data) => mine.receive(String(data)));
     socket.on("close", () => {
       if (peer === mine) peer = undefined;
