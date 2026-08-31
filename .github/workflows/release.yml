@@ -1,0 +1,119 @@
+name: Release
+
+# Manual on purpose: a bump computed from commits and written to package.json,
+# CHANGELOG.md and RUNNER_VERSION, then tagged and published, is a release
+# somebody decided to cut. workflow_dispatch means nothing happens on a push
+# to main; somebody has to open Actions and press the button. That is the
+# human signature this repository's tag has always carried, moved from a
+# local `git tag` to a click.
+on:
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: cut a release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          # bumpFor reads every commit since the last cli-v* tag. The default
+          # checkout is a shallow clone of one commit, which would read as
+          # "nothing to release" today and as a wrong, truncated range the day
+          # the distance to the last tag grows past what the default keeps.
+          fetch-depth: 0
+
+      - name: Install node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install dependencies
+        run: npm ci
+
+      # Writes package.json, CHANGELOG.md and src/index.ts's RUNNER_VERSION to
+      # the working tree if there is a feat: or a fix: since the last tag.
+      # Nothing here touches git: a write to disk that turns out to be wrong
+      # costs a rerun, a commit and a tag do not.
+      - name: Compute the next release
+        id: prepare
+        run: npm run release -- --apply
+
+      # Everything past this point only runs when prepare.ts found something to
+      # release. A dispatch with nothing new exits here, cleanly, rather than
+      # cutting a version that changes no bytes.
+      - name: Typecheck
+        if: steps.prepare.outputs.should_release == 'true'
+        run: npm run typecheck
+
+      - name: Test
+        if: steps.prepare.outputs.should_release == 'true'
+        run: npm test
+
+      # Pinned to the version crewbit-v2's own workflows pin, for the same
+      # reason docs/measured.md records there: 1.4.0 broke a running server for
+      # three days on a timeout that never landed on the same test twice.
+      - name: Install bun
+        if: steps.prepare.outputs.should_release == 'true'
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.14
+
+      - name: Build macOS arm64
+        if: steps.prepare.outputs.should_release == 'true'
+        run: npm run build:macos-arm64
+
+      - name: Build Linux x64
+        if: steps.prepare.outputs.should_release == 'true'
+        run: npm run build:linux-x64
+
+      # Nothing is written to the repository above this line. The build
+      # succeeding is what earns the commit, the tag and the Release below —
+      # not the other way around. A failed build before this point leaves the
+      # working tree's uncommitted edits behind when the job ends and nothing
+      # else changed; a failed build after it would leave a tag with no
+      # Release behind it, on a public repository, for somebody to find and no
+      # cheap way to undo.
+      - name: Commit the release
+        if: steps.prepare.outputs.should_release == 'true'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add package.json CHANGELOG.md src/index.ts
+          git commit -m "chore: cut v${{ steps.prepare.outputs.version }}"
+          git push origin HEAD:main
+
+      - name: Tag it
+        if: steps.prepare.outputs.should_release == 'true'
+        run: |
+          git tag "cli-v${{ steps.prepare.outputs.version }}"
+          git push origin "cli-v${{ steps.prepare.outputs.version }}"
+
+      # #148's second criterion, carried over from crewbit-v2: the changelog
+      # ships with the binary, not only with the repository.
+      - name: Extract this version's changelog section
+        if: steps.prepare.outputs.should_release == 'true'
+        run: >
+          bun -e '
+          import { readFileSync, writeFileSync } from "node:fs";
+          import { sectionFor } from "./tools/release/notes.ts";
+          const changelog = readFileSync("CHANGELOG.md", "utf8");
+          writeFileSync("release-notes.md", sectionFor(changelog, process.env.VERSION));
+          '
+        env:
+          VERSION: ${{ steps.prepare.outputs.version }}
+
+      - name: Publish the release
+        if: steps.prepare.outputs.should_release == 'true'
+        uses: softprops/action-gh-release@v2
+        with:
+          name: crewbit ${{ steps.prepare.outputs.version }}
+          tag_name: cli-v${{ steps.prepare.outputs.version }}
+          body_path: release-notes.md
+          files: |
+            bin/crewbit-macos-arm64
+            bin/crewbit-linux-x64
+            CHANGELOG.md
