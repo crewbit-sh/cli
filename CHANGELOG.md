@@ -20,6 +20,7 @@ was lost on the way back.
 - A connection that fails before it starts says what could be wrong instead of
   blaming your credential, and points at a page that exists
 - The command the Runners page hands you is the one that exists: the binary is called crewbit
+- The version it reports, both to `--version` and to Crewbit when it connects, is now the version that is actually running, instead of a placeholder stuck at 0.0.0 since the first release
 
 ## 0.1.0
 
