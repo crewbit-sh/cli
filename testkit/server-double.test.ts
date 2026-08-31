@@ -204,6 +204,32 @@ describe("completing a job", () => {
     });
     await double.stop();
   });
+
+  test("refuseCompletion makes the runner's request reject, N times before it accepts", async () => {
+    const double = await startServerDouble();
+    const runner = await connectFakeRunner(double.url);
+    await hello(runner);
+    double.refuseCompletion("job-9", 1);
+
+    const completed = double.completionFor("job-9");
+    await expect(
+      runner.peer.request("job.complete", {
+        jobId: "job-9",
+        outcome: "complete",
+        artifacts: {},
+      }),
+    ).rejects.toThrow();
+    const acked = await runner.peer.request("job.complete", {
+      jobId: "job-9",
+      outcome: "complete",
+      artifacts: {},
+    });
+
+    expect(acked).toEqual({ acknowledged: true });
+    await expect(completed).resolves.toMatchObject({ jobId: "job-9" });
+    expect(double.completionAttempts("job-9")).toBe(2);
+    await double.stop();
+  });
 });
 
 describe("cancelling a job", () => {

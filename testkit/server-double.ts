@@ -60,6 +60,15 @@ export type ServerDouble = {
   notifications(): HumanNotifyParams[];
   /** Resolves with the Job's completion, once the runner sends it. */
   completionFor(jobId: string): Promise<JobCompleteParams>;
+  /**
+   * Makes the next `times` `job.complete` requests for this Job reject,
+   * simulating the store failure this protocol never sees directly: what a
+   * runner does about a completion nobody could take. Pass `"always"` for a
+   * store that never recovers.
+   */
+  refuseCompletion(jobId: string, times: number | "always"): void;
+  /** How many `job.complete` requests have arrived for this Job, refused or not. */
+  completionAttempts(jobId: string): number;
   /** Resolves once at least `count` events have arrived for the Job. */
   waitForEvent(jobId: string, count: number): Promise<void>;
   /** Resolves once at least `count` `job.status` notifications have arrived for the Job. */
@@ -77,6 +86,8 @@ export async function startServerDouble(options: ServerDoubleOptions = {}): Prom
   const notifications: HumanNotifyParams[] = [];
   const completions = new Map<string, (params: JobCompleteParams) => void>();
   const pendingCompletions = new Map<string, JobCompleteParams>();
+  const completionRefusals = new Map<string, number>();
+  const completionAttemptCounts = new Map<string, number>();
   const waiters: Array<() => void> = [];
 
   let peer: RpcPeer<ServerCalls, RunnerCalls> | undefined;
@@ -157,6 +168,12 @@ export async function startServerDouble(options: ServerDoubleOptions = {}): Prom
           settleWaiters();
         },
         "job.complete": (params) => {
+          completionAttemptCounts.set(params.jobId, (completionAttemptCounts.get(params.jobId) ?? 0) + 1);
+          const remaining = completionRefusals.get(params.jobId) ?? 0;
+          if (remaining > 0) {
+            completionRefusals.set(params.jobId, remaining - 1);
+            throw new Error("the double refused this completion");
+          }
           const waiting = completions.get(params.jobId);
           if (waiting) waiting(params);
           else pendingCompletions.set(params.jobId, params);
@@ -238,6 +255,10 @@ export async function startServerDouble(options: ServerDoubleOptions = {}): Prom
         }
         completions.set(jobId, resolve);
       }),
+    refuseCompletion: (jobId, times) => {
+      completionRefusals.set(jobId, times === "always" ? Number.POSITIVE_INFINITY : times);
+    },
+    completionAttempts: (jobId) => completionAttemptCounts.get(jobId) ?? 0,
     waitForEvent: (jobId, count) =>
       new Promise((resolve) => {
         const check = () => (events.get(jobId)?.length ?? 0) >= count;
