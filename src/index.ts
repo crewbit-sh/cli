@@ -47,7 +47,7 @@ export { consumeStream, failedResult, parseLine } from "./engine/stream.ts";
 export type { Engine, EngineEvent, EngineResult, EngineRun } from "./engine/types.ts";
 export { createLogger, errorFields, type Logger } from "./log.ts";
 
-export const RUNNER_VERSION = "0.2.0";
+export const RUNNER_VERSION = "0.3.0";
 /**
  * How a handshake the server answered and declined reads. Exported because the
  * CLI tells this apart from every other way a connect fails: this one means the
