@@ -111,7 +111,13 @@ jobs:
       #
       # --options runtime is the hardened runtime, and notarization refuses a
       # binary built without it. --timestamp asks for a trusted timestamp on
-      # the signature, which notarization also expects.
+      # the signature, which notarization also expects. --force because the
+      # two binaries do not start from the same place: bun's cross-compiled
+      # darwin-x64 runtime ships already signed under Bun's own Team ID, and
+      # codesign refuses to sign over that without being told to; arm64 only
+      # carries the ad-hoc signature the linker always attaches, which codesign
+      # is willing to replace on its own. --force makes both paths the same
+      # instead of relying on which binary happened to need it today.
       - name: Sign the macOS binaries
         if: steps.prepare.outputs.should_release == 'true'
         run: |
@@ -122,7 +128,7 @@ jobs:
             exit 1
           fi
           for bin in bin/crewbit-macos-arm64 bin/crewbit-macos-x64; do
-            codesign --sign "$IDENTITY" --options runtime --timestamp "$bin"
+            codesign --force --sign "$IDENTITY" --options runtime --timestamp "$bin"
             codesign --verify --verbose "$bin"
           done
 
