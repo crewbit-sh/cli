@@ -71,7 +71,7 @@ describe("an engine that failed for some other reason", () => {
 });
 
 /**
- * The shape the five Jobs of 2026-08-18 arrived in: one turn, nothing spent,
+ * The shape those five Jobs arrived in: one turn, nothing spent,
  * and a 529 from the API. Each case below names its one difference from it.
  */
 const outage = {

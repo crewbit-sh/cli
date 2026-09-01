@@ -10,8 +10,8 @@
  * batcher from an acked seq) be driven without this double deciding it for
  * real. Deciding it for real is what stays out of scope: whether a lease has
  * actually expired, a grace window, fairness across multiple runners. That is
- * dispatch behaviour with its own coverage in crewbit-v2, and reimplementing
- * it here would make this a second dispatcher rather than a double.
+ * server behaviour with its own coverage on the server, and reimplementing
+ * it here would make this a second server rather than a double.
  */
 import { createServer, type Server } from "node:http";
 import {
@@ -222,8 +222,8 @@ export async function startServerDouble(options: ServerDoubleOptions = {}): Prom
     // shared connection state at that point acts on whichever connection is
     // current rather than the one that actually raised the event.
     //
-    // This is a family, not a one-off: `test/harness/fake-runner.ts` in
-    // crewbit-v2 had the same shape from the other direction, a handler
+    // This is a family, not a one-off: the service's own fake runner had
+    // the same shape from the other direction, a handler
     // closing over a `const` its own enclosing call had not finished
     // assigning yet, because a message can arrive before the promise that
     // sets it up resolves. Both are a listener trusting shared, mutable,

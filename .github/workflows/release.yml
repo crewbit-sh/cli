@@ -94,7 +94,7 @@ jobs:
           git tag "v${{ steps.prepare.outputs.version }}"
           git push origin "v${{ steps.prepare.outputs.version }}"
 
-      # #148's second criterion, carried over from crewbit-v2: the changelog
+      # Carried over from the service: the changelog
       # ships with the binary, not only with the repository.
       - name: Extract this version's changelog section
         if: steps.prepare.outputs.should_release == 'true'

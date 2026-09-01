@@ -5,8 +5,8 @@
  * Three places have to agree, checked by `src/index.test.ts`: `package.json`,
  * the newest `## X.Y.Z` heading in `CHANGELOG.md`, and `RUNNER_VERSION` in
  * `src/index.ts` — the constant `--version` prints and the handshake sends.
- * crewbit-v2's `tools/release/release.ts` only ever had the first two; this
- * repository gained the third when #147 found `RUNNER_VERSION` stuck at
+ * The service's own release script only ever had the first two; this
+ * repository gained the third after `RUNNER_VERSION` was found stuck at
  * `0.0.0` since the first release, so this script writes all three or none.
  *
  * Run by `.github/workflows/release.yml` on `workflow_dispatch`, always with
@@ -80,7 +80,7 @@ writeFileSync("package.json", `${JSON.stringify({ ...manifest, version }, null, 
 // Inserted before the first `## ` heading rather than after the first
 // paragraph: this file's intro is three paragraphs (title, what this is,
 // how upgrading works), not one, and splitting on the first blank line — what
-// crewbit-v2's release.ts still does — moves them all below the new section.
+// the service's still does, moves them all below the new section.
 const changelog = existsSync("CHANGELOG.md") ? readFileSync("CHANGELOG.md", "utf8") : "# crewbit\n";
 const at = changelog.search(/^## /m);
 const [before, after] =

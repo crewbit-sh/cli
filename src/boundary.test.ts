@@ -1,7 +1,7 @@
 /**
  * The runner is the least trusted component in the system: it executes
  * model-authored code on somebody's machine. Two properties keep that bounded,
- * and both were checked in crewbit-v2's `test/boundary.test.ts` while this
+ * and both were checked by the service's own suite while this
  * package lived there. They moved here with the package, because a guarantee
  * whose only check is in another repository is a guarantee nobody holds.
  */
@@ -86,8 +86,8 @@ describe("the runner stays runtime-portable", () => {
   test("node runs its CLI, which fails the moment a Bun-only API leaks in", async () => {
     // Compiled by Bun and has to run under Node, which reads as a contradiction
     // until you see that the binary is Bun's and the code is nobody's. This is
-    // the cheap half of that guarantee; the expensive half dials a real Worker
-    // and lives in crewbit-v2.
+    // the cheap half of that guarantee; the expensive half dials a real server
+    // and lives with the service.
     const cli = new URL("src/cli.ts", root).pathname;
 
     const { code, stdout, stderr } = await run("node", [cli, "--version"]);

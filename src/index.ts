@@ -318,10 +318,10 @@ export async function startRunner(options: RunnerOptions): Promise<RunnerHandle>
     }
 
     reconnectAttempt = 0;
-    // "I am still here", and nothing else. A server may be a Worker, whose
-    // runtime answers an inbound WebSocket ping without waking the code and
-    // offers no way to send one, so the only frame that proves a socket is alive
-    // there is one the runner sent. A runner mid-Job is already sending
+    // "I am still here", and nothing else. A server's runtime may answer an
+    // inbound WebSocket ping without waking its code, and offer no way to send
+    // one, so the only frame that proves a socket is alive is one the runner
+    // sent. A runner mid-Job is already sending
     // `job.status`; this is what an idle one sends instead.
     alive = setInterval(() => {
       peer.notify("runner.alive", {});

@@ -3,7 +3,7 @@
  * this guards is two outcomes for one `jobId`: duplicate work is recoverable,
  * a duplicate outcome corrupts the Run.
  *
- * The runner half of crewbit-v2's test/cancel.test.ts. What made the server
+ * The runner half of a pair the service's own suite holds. What made the server
  * send the cancel stays there, because an expired lease, a reclaim budget and
  * a Job given up on are all decisions taken against a store. What arrives here
  * is the same frame either way, and everything the runner does about it is

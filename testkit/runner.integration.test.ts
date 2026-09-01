@@ -47,9 +47,9 @@ describe("a Job whose engine runs long", () => {
     // starting" sent once. Nobody sends a third: the engine above is still
     // blocked on `release`, so only the keepalive interval firing again and
     // again produces one. This is the half of "holds its claim while the
-    // engine is still working" that moved here from crewbit-v2's
-    // leases.test.ts -- the dispatcher's own reaction to a status arriving is
-    // that file's, proven there with one sent by hand.
+    // engine is still working" that moved here from the service's own suite.
+    // The server's reaction to a status arriving stays there, proven with one
+    // sent by hand.
     await double.waitForStatus("job-1", 3);
     const statuses = double.statuses("job-1");
     expect(statuses.slice(1).every((s) => s.status === "working")).toBe(true);

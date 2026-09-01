@@ -1,14 +1,14 @@
 /**
  * A Job that finished, against a double that refuses to take the answer:
- * the runner's own half of a defect measured twice in production on a real
- * server, before the extraction. Three commits pushed, the project's own
+ * the runner's own half of a defect measured twice against a real server,
+ * before the extraction. Three commits pushed, the project's own
  * suite green, and then one `job.complete` the store could not write. From
  * the Run's point of view none of it happened, so what the
  * runner does about that is the whole of what these tests are about; the
  * server's own idempotency (a retried completion applied exactly once) stays
- * with the dispatcher that owns the store, in crewbit-v2's own suite.
+ * with the server that owns the store.
  *
- * Ported from crewbit-v2's test/lost-completion.test.ts.
+ * Ported from the service's own suite.
  */
 import { existsSync } from "node:fs";
 import { rm } from "node:fs/promises";

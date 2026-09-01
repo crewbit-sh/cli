@@ -2,14 +2,13 @@
  * "I am still here", and nothing else.
  *
  * Liveness used to be the WebSocket protocol's own ping, which `Bun.serve`
- * answered without either side writing code. A Worker cannot ping, so the only
- * frame that proves a socket is alive is one the runner sent, and sending it
+ * answered without either side writing code. A server that cannot ping leaves
+ * the runner's own frames as the only proof a socket is alive, and sending one
  * became the runner's job.
  *
- * The runner half of crewbit-v2's test/heartbeat.test.ts. Deciding that a
- * runner has gone quiet for long enough to take its Jobs back is the
- * dispatcher's, measured against a store, and it stays there with the socket
- * that greets and then says nothing.
+ * The runner half of a pair the service's own suite holds. Deciding that a
+ * runner has gone quiet for long enough to take its Jobs back is the server's,
+ * and it stays there with the socket that greets and then says nothing.
  */
 import { afterEach, describe, expect, test } from "vitest";
 import { createLogger, fakeEngine, startRunner } from "../src/index.ts";

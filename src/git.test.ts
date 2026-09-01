@@ -549,7 +549,7 @@ describe("taking the credential out of what git said", () => {
   // that offline. Going through `git()` against an unreachable host asserted the
   // absence of a token git had already stripped itself, which is a test that
   // cannot fail.
-  const url = withToken("https://github.com/dukex/crewbit-v2.git", "ghp_thisisasecret");
+  const url = withToken("https://github.com/acme/api.git", "ghp_thisisasecret");
 
   test("the message a bad token actually produces", () => {
     const said = redact(`fatal: Authentication failed for '${url}/'`);
@@ -557,7 +557,7 @@ describe("taking the credential out of what git said", () => {
     expect(said).not.toContain("ghp_thisisasecret");
     expect(said).not.toContain("x-access-token");
     // The repository is the half worth keeping: it says which clone failed.
-    expect(said).toContain("github.com/dukex/crewbit-v2.git");
+    expect(said).toContain("github.com/acme/api.git");
   });
 
   test("every occurrence, not the first", () => {

@@ -7,7 +7,7 @@
  * turns into, how many of them share a frame and in what order, and that a
  * rate limit is both an event and something a person is told about.
  *
- * Ported from crewbit-v2's test/transcript.test.ts, where the same cases were
+ * Ported from the service's own suite, where the same cases were
  * read back out of the store. They are read off the frames here instead, which
  * is the same claim one layer earlier: that the server keeps what it was sent
  * is the store's to prove.

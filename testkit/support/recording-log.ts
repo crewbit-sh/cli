@@ -1,7 +1,7 @@
 /**
  * A `Logger` a test can wait a specific line out of, without polling: the
- * component already says so, the same seam crewbit-v2's own `recording()`
- * harness uses for the dispatcher's log, applied here to the runner's.
+ * component already says so, the same seam the service's own harness uses
+ * for its log, applied here to the runner's.
  */
 import { createLogger, type Logger } from "../../src/index.ts";
 

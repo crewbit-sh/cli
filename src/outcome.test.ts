@@ -3,10 +3,10 @@
  * Run goes next.
  *
  * Every branch below used to be reachable only through a test that started a
- * dispatcher, opened a socket, cloned a repository and pushed to it, at roughly
- * six seconds each. That is the shape a real defect was found in production
- * behind: `deliver` decided from an exit code the comment said it did not
- * trust, and every integration test over it was green.
+ * server, opened a socket, cloned a repository and pushed to it, at roughly six
+ * seconds each. That is the shape a real defect hid behind: `deliver` decided
+ * from an exit code the comment said it did not trust, and every integration
+ * test over it was green.
  */
 
 import { describe, expect, test } from "vitest";

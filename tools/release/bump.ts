@@ -4,7 +4,7 @@
  * Pure on purpose: reading git and writing files is `prepare.ts`, and everything
  * that decides a release lives here where a test reaches it by calling it.
  *
- * Copied from crewbit-v2's `tools/release/bump.ts`, minus `pathsFor` and
+ * Copied from the service's own, minus `pathsFor` and
  * `FORMER_PATHS`: those existed to scope a monorepo's git log to one package's
  * directory. This repository has no other package to scope away from — every
  * commit here is about the runner, so the whole log is read.

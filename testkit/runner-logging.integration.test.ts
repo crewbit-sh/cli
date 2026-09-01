@@ -6,7 +6,7 @@
  * exactly like a Stage exploring a repository. It cost a whole smoke to find
  * once already.
  *
- * Ported whole from crewbit-v2's test/runner-logging.test.ts, minus the one
+ * Ported whole from the service's own suite, minus the one
  * case that never needed a server on either side: how `createLogger` shapes an
  * engine event is a unit test, and it lives in src/log.test.ts now.
  *

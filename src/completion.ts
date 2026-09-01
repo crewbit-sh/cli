@@ -1,18 +1,16 @@
 /**
  * Handing the outcome over, until somebody takes it.
  *
- * Measured twice in production on 2026-08-24, on one Job: three commits written
- * and pushed, the project's own suite green, and then `job.complete` failed once
- * against a database that would not connect. The runner logged a warning,
- * deleted the workspace and freed its slot, so ten minutes of paid work became a
- * Job that sat until its lease lapsed and was then run again from scratch.
+ * Measured twice on one Job: three commits written and pushed, the project's
+ * own suite green, and then `job.complete` failed once against a server that
+ * would not answer. The runner logged a warning, deleted the workspace and
+ * freed its slot, so everything the Job had done was gone and it ran again
+ * from scratch.
  *
  * One attempt was the whole of it. Every other message the runner sends is
  * either idempotent or repeated, and this one was neither, which made a single
  * network fault unsurvivable. Repeating it is safe by construction rather than
- * by luck: `jobs.complete` refuses a second outcome for a Job that already has
- * one, and the dispatcher advances the Run only when the store says the outcome
- * was the first.
+ * by luck: the server refuses a second outcome for a Job that already has one.
  */
 
 import { errorFields, type Logger } from "./log.ts";

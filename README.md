@@ -40,6 +40,6 @@ That is the opposite contract from
 top heading is newer than what npm already has. Two repositories of the
 same project reading differently on purpose: this changelog can be
 generated because it is read by a developer who wants to know what changed
-in the thing they run, and CLAUDE.md already draws that line in
-crewbit-v2 — the runner's history may be mechanical, the service's and the
+in the thing they run, and CLAUDE.md already draws that line for
+the project: the runner's history may be mechanical, the service's and the
 protocol's need a person's judgment about what a stranger should be told.

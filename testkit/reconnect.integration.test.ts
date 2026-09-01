@@ -5,7 +5,7 @@
  * still holding and how far its transcript got, and drop a Job the answer says
  * is no longer its.
  *
- * Ported from crewbit-v2's test/reconnect.test.ts. Whether the lease has
+ * Ported from the service's own suite. Whether the lease has
  * actually expired stays there, and so does the one case this file does not
  * carry: that a replayed batch leaves no duplicate in the transcript is the
  * server's composite key doing it, and proving it needs the store. The

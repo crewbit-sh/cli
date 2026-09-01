@@ -4,8 +4,8 @@
  * once, so a Ctrl-C in the middle of a code stage lost the engine and
  * everything it had not pushed yet, which is up to a third of the lease.
  *
- * Ported from crewbit-v2's test/drain.test.ts, which reached a real
- * dispatcher through a harness this package cannot pull in. Drain is entirely
+ * Ported from the service's own suite, where it reached a real server
+ * through a harness this package cannot pull in. Drain is entirely
  * the runner's own decision -- refuse new work, let what is running finish --
  * so nothing here needed a real server to prove.
  */

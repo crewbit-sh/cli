@@ -3,8 +3,8 @@
  *
  * A pure function, and that is the point of the file rather than a style
  * preference: this is where the Run goes next, and it used to live inside
- * `execute` where the only way to reach a branch of it was to start a
- * dispatcher, open a socket, clone a repository and push to it. Twelve of those
+ * `execute` where the only way to reach a branch of it was to start a server,
+ * open a socket, clone a repository and push to it. Twelve of those
  * at six seconds each covered what the table below covers in milliseconds, and
  * the two defects this repository actually shipped in this area were both
  * decisions with no unit test over them and green integration tests around

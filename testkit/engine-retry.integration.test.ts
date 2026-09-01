@@ -1,13 +1,13 @@
 /**
  * A Job whose engine never got an answer from the API.
  *
- * Five Jobs died this way in one minute on 2026-08-18, each reporting one turn,
+ * Five Jobs died this way in one minute, each reporting one turn,
  * `$0.00` and `API Error: 529 Overloaded`, and each sending its Run to
  * `needs_human`. Two of them threw away a completed plan. What is asserted here
  * is that the transient one is tried again and the permanent one still is not,
  * and that a Job which keeps hitting it reports exactly what it reports today.
  *
- * Ported from crewbit-v2's test/engine-retry.test.ts, whole: how many attempts,
+ * Ported whole from the service's own suite: how many attempts,
  * how long between them and which failures are worth another spawn are all the
  * runner's own decision, and the completion carrying the last attempt's words
  * arrives over the wire this double already speaks.
