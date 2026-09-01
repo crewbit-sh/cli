@@ -63,6 +63,13 @@ export type ServerDouble = {
   readies(): RunnerCalls["runner.ready"]["params"][];
   /** Resolves once at least `count` of them have arrived. */
   waitForReady(count: number): Promise<void>;
+  /**
+   * How many `runner.alive` beats have arrived. The payload is empty: the
+   * frame itself is the whole message, which is why this is a count.
+   */
+  aliveCount(): number;
+  /** Resolves once at least `count` beats have arrived. */
+  waitForAlive(count: number): Promise<void>;
   cancel(jobId: string, reason: CancelReason): Promise<JobCancelResult>;
   statuses(jobId: string): JobStatusParams[];
   /** Every event the runner sent for the Job, in order, with the batching flattened away. */
@@ -101,6 +108,7 @@ export async function startServerDouble(options: ServerDoubleOptions = {}): Prom
   const batches = new Map<string, JobEventParams[]>();
   const notifications: HumanNotifyParams[] = [];
   const readyLog: RunnerCalls["runner.ready"]["params"][] = [];
+  let beats = 0;
   const completions = new Map<string, (params: JobCompleteParams) => void>();
   const pendingCompletions = new Map<string, JobCompleteParams>();
   const completionRefusals = new Map<string, number>();
@@ -170,7 +178,10 @@ export async function startServerDouble(options: ServerDoubleOptions = {}): Prom
           readyLog.push(params);
           settleWaiters();
         },
-        "runner.alive": () => {},
+        "runner.alive": () => {
+          beats += 1;
+          settleWaiters();
+        },
         "job.status": (params) => {
           const list = statuses.get(params.jobId) ?? [];
           list.push(params);
@@ -264,6 +275,17 @@ export async function startServerDouble(options: ServerDoubleOptions = {}): Prom
     },
     disconnectRunner: () => currentSocket?.terminate(),
     assign: (params) => connectedPeer().request("job.assign", params),
+    aliveCount: () => beats,
+    waitForAlive: (count) =>
+      new Promise((resolve) => {
+        const check = () => beats >= count;
+        if (check()) {
+          resolve();
+          return;
+        }
+        const wait = () => (check() ? resolve() : waiters.push(wait));
+        waiters.push(wait);
+      }),
     readies: () => [...readyLog],
     waitForReady: (count) =>
       new Promise((resolve) => {
