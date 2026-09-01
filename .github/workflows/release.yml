@@ -15,7 +15,10 @@ permissions:
 jobs:
   release:
     name: Bump and publish
-    runs-on: ubuntu-latest
+    # macOS, not ubuntu: codesign and notarytool only exist here, and bun
+    # cross-compiles the Linux binary from either host equally well, so moving
+    # the whole job costs nothing the Linux build needed ubuntu for.
+    runs-on: macos-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -81,6 +84,75 @@ jobs:
       - name: Build Linux x64
         if: steps.prepare.outputs.should_release == 'true'
         run: npm run build:linux-x64
+
+      # A temporary keychain rather than the runner's default one, unlocked
+      # only for this job and thrown away when it ends: the certificate exists
+      # on disk for the seconds codesign needs it, decoded from the secret and
+      # deleted again immediately after import.
+      - name: Import the signing certificate
+        if: steps.prepare.outputs.should_release == 'true'
+        env:
+          CERTIFICATE_BASE64: ${{ secrets.APPLE_CERTIFICATE_P12_BASE64 }}
+          CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+        run: |
+          KEYCHAIN_PASSWORD=$(openssl rand -base64 32)
+          security create-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
+          security default-keychain -s build.keychain
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
+          security set-keychain-settings -t 3600 -u build.keychain
+          echo "$CERTIFICATE_BASE64" | base64 --decode > certificate.p12
+          security import certificate.p12 -k build.keychain -P "$CERTIFICATE_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" build.keychain
+          rm certificate.p12
+
+      # The identity's exact name carries the developer's own name and Team ID
+      # inside it, so it is read off the certificate just imported rather than
+      # assembled from secrets that would have to match Apple's formatting.
+      #
+      # --options runtime is the hardened runtime, and notarization refuses a
+      # binary built without it. --timestamp asks for a trusted timestamp on
+      # the signature, which notarization also expects.
+      - name: Sign the macOS binaries
+        if: steps.prepare.outputs.should_release == 'true'
+        run: |
+          IDENTITY=$(security find-identity -v -p codesigning build.keychain \
+            | grep "Developer ID Application" | head -1 | sed -E 's/.*"(.+)"/\1/')
+          if [ -z "$IDENTITY" ]; then
+            echo "::error::no Developer ID Application identity found in the imported certificate"
+            exit 1
+          fi
+          for bin in bin/crewbit-macos-arm64 bin/crewbit-macos-x64; do
+            codesign --sign "$IDENTITY" --options runtime --timestamp "$bin"
+            codesign --verify --verbose "$bin"
+          done
+
+      # notarytool takes a zip, a dmg or a pkg, never a bare executable, so
+      # each binary is zipped only to be handed to Apple and the zip is gone
+      # once that call returns. --wait blocks until Apple's service answers,
+      # which is minutes rather than seconds and is why this step is the slow
+      # one in the job.
+      #
+      # There is no staple step after this on purpose: stapling embeds the
+      # notarization ticket in a bundle, and a bare Mach-O executable has
+      # nowhere to embed one. Gatekeeper instead asks Apple's servers for the
+      # ticket the first time each binary runs, which needs network access
+      # once, the same trade a stapled app avoids and a bare binary cannot.
+      - name: Notarize the macOS binaries
+        if: steps.prepare.outputs.should_release == 'true'
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          for bin in bin/crewbit-macos-arm64 bin/crewbit-macos-x64; do
+            ditto -c -k --keepParent "$bin" "$bin.zip"
+            xcrun notarytool submit "$bin.zip" \
+              --apple-id "$APPLE_ID" \
+              --password "$APPLE_APP_SPECIFIC_PASSWORD" \
+              --team-id "$APPLE_TEAM_ID" \
+              --wait
+            rm "$bin.zip"
+          done
 
       # Nothing is written to the repository above this line. The build
       # succeeding is what earns the commit, the tag and the Release below —
