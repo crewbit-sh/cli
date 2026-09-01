@@ -131,17 +131,22 @@ describe("a runner whose server went away", () => {
     return seen;
   }
 
-  test("reconnects on one chain, not one per path that noticed", async () => {
+  test("numbers the attempt it is reporting, on one chain", async () => {
     const seen = await orphaned();
 
     await seen.waitForCount("reconnecting", 3);
 
-    // A failed connect rejects and fires `close`, so both paths used to
-    // schedule and each of those scheduled two more, doubling the count every
-    // attempt. One chain counts once: every line is the attempt after the last.
+    // Three, because an off-by-one passes a single line. The line carries the
+    // error of the attempt that failed and the wait that preceded it, so the
+    // number beside them is that attempt's: reading the counter instead
+    // reported the *next* one, because a failed connect fires `close`, and
+    // close schedules before the rejection reaches this catch.
+    //
+    // It is also the one-chain check. Both paths used to schedule and each of
+    // those scheduled two more, doubling the count every attempt, which shows
+    // up here as a repeat or a jump.
     const attempts = said(seen, "reconnecting").map((l) => Number(l.attempt));
-    const steps = attempts.slice(1, 3).map((a, i) => a - (attempts[i] as number));
-    expect(steps).toEqual([1, 1]);
+    expect(attempts.slice(0, 3)).toEqual([1, 2, 3]);
   });
 
   test("actually backs off, instead of resetting to the first delay", async () => {

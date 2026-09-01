@@ -361,7 +361,12 @@ export async function startRunner(options: RunnerOptions): Promise<RunnerHandle>
   function scheduleReconnect(): void {
     if (reconnectTimer || stopped) return;
     const delay = Math.min(reconnectMs * 2 ** reconnectAttempt, MAX_RECONNECT_MS);
-    reconnectAttempt += 1;
+    // Held here rather than read back below, the way `delay` already is. A
+    // failed connect fires `close`, close schedules the next try, and that
+    // happens before the rejection reaches the `catch`: reading the counter
+    // there reported the attempt after the one whose error it was printing.
+    const attempt = reconnectAttempt + 1;
+    reconnectAttempt = attempt;
     reconnectTimer = setTimeout(() => {
       reconnectTimer = undefined;
       if (stopped) return;
@@ -383,7 +388,7 @@ export async function startRunner(options: RunnerOptions): Promise<RunnerHandle>
         }
         log.warning("reconnecting", {
           ...errorFields(error),
-          attempt: reconnectAttempt,
+          attempt,
           delay_ms: delay,
         });
         scheduleReconnect();
