@@ -10,8 +10,9 @@
  * so nothing here needed a real server to prove.
  */
 import { afterEach, describe, expect, test } from "vitest";
-import { createLogger, type Engine, fakeEngine, startRunner } from "../src/index.ts";
+import { createLogger, fakeEngine, startRunner } from "../src/index.ts";
 import { startServerDouble, type ServerDouble } from "./server-double.ts";
+import { blockingEngine } from "./support/blocking-engine.ts";
 
 const quiet = createLogger("test", () => {});
 const stopAll: Array<() => void | Promise<void>> = [];
@@ -42,45 +43,10 @@ const job = (jobId: string) => ({
   harness: { prompt: "reply with exactly: OK", maxTurns: 1 },
 });
 
-/** An engine that stays in the middle of a Job until it is let go. */
-function blocking(): { engine: Engine; release: () => void; running: Promise<void> } {
-  let release = () => {};
-  const held = new Promise<void>((resolve) => {
-    release = resolve;
-  });
-  // The moment the Job is actually being worked on, which is what the tests
-  // below start from, rather than sleeping and hoping it had started by then.
-  let started = () => {};
-  const running = new Promise<void>((resolve) => {
-    started = resolve;
-  });
-  return {
-    release,
-    running,
-    engine: {
-      kind: "slow",
-      version: "0",
-      async run() {
-        started();
-        await held;
-        return {
-          ok: true,
-          text: "done",
-          sessionId: "s",
-          turns: 1,
-          costUsd: 0,
-          subtype: "success",
-          terminalReason: "completed",
-        };
-      },
-    },
-  };
-}
-
 describe("draining a runner", () => {
   test("finishes the Job it is holding rather than dropping it", async () => {
     const double = await server();
-    const { engine, release, running } = blocking();
+    const { engine, release, running } = blockingEngine();
     const runner = await startRunner({ url: double.url, log: quiet, engine });
     stopAll.push(() => runner.stop());
 
@@ -101,7 +67,7 @@ describe("draining a runner", () => {
 
   test("takes nothing new while it is draining", async () => {
     const double = await server();
-    const { engine, release, running } = blocking();
+    const { engine, release, running } = blockingEngine();
     const runner = await startRunner({ url: double.url, log: quiet, slots: 2, engine });
     stopAll.push(() => runner.stop());
 
@@ -131,7 +97,7 @@ describe("draining a runner", () => {
 
   test("stopping twice does not wait twice", async () => {
     const double = await server();
-    const { engine, release, running } = blocking();
+    const { engine, release, running } = blockingEngine();
     const runner = await startRunner({ url: double.url, log: quiet, engine });
 
     await double.helloReceived();

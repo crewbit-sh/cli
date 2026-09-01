@@ -4,8 +4,9 @@
  * the double.
  */
 import { afterEach, describe, expect, test } from "vitest";
-import { createLogger, type Engine, startRunner } from "../src/index.ts";
+import { createLogger, startRunner } from "../src/index.ts";
 import { startServerDouble, type ServerDouble } from "./server-double.ts";
+import { blockingEngine } from "./support/blocking-engine.ts";
 
 const quiet = createLogger("test", () => {});
 const stopAll: Array<() => void | Promise<void>> = [];
@@ -14,33 +15,6 @@ afterEach(async () => {
   for (const stop of stopAll.reverse()) await stop();
   stopAll.length = 0;
 });
-
-/** An engine that runs until the test releases it. */
-function blockingEngine(): { engine: Engine; release: () => void } {
-  let release = () => {};
-  const blocked = new Promise<void>((resolve) => {
-    release = resolve;
-  });
-  return {
-    engine: {
-      kind: "blocking",
-      version: "0",
-      async run() {
-        await blocked;
-        return {
-          ok: true,
-          text: "done",
-          sessionId: "s",
-          turns: 1,
-          costUsd: 0,
-          subtype: "success",
-          terminalReason: "completed",
-        };
-      },
-    },
-    release,
-  };
-}
 
 async function server(): Promise<ServerDouble> {
   const double = await startServerDouble();

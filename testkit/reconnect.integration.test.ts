@@ -15,6 +15,7 @@
 import { afterEach, describe, expect, test } from "vitest";
 import { createLogger, type Engine, startRunner } from "../src/index.ts";
 import { startServerDouble, type ServerDouble } from "./server-double.ts";
+import { blockingEngine } from "./support/blocking-engine.ts";
 import { recordingLog } from "./support/recording-log.ts";
 
 /** These tests drop connections on purpose, and the logs are not what they assert. */
@@ -30,58 +31,6 @@ async function server(): Promise<ServerDouble> {
   const double = await startServerDouble();
   stopAll.push(() => double.stop());
   return double;
-}
-
-/**
- * Blocks until released, so a Job is still in flight when the socket drops,
- * and records what happened to it: which run produced an answer, and whether
- * the run was told to stop. Its own rather than drain's, which needs neither.
- */
-function blockingEngine(options: { emits?: boolean } = {}) {
-  let release = () => {};
-  const blocked = new Promise<void>((resolve) => {
-    release = resolve;
-  });
-  let started = () => {};
-  const running = new Promise<void>((resolve) => {
-    started = resolve;
-  });
-  const state = { runs: 0, aborted: false };
-
-  const engine: Engine = {
-    kind: "blocking",
-    version: "0",
-    async run(run) {
-      state.runs += 1;
-      // Tagged, so a completion can be traced to the run that produced it. The
-      // shared release makes a later run return at once, and without the tag
-      // its output is indistinguishable from the abandoned one's.
-      const label = `run ${state.runs}`;
-      const stopped = () => {
-        state.aborted = true;
-        release();
-      };
-      // Already aborted before the listener is added is a real case: a Job
-      // cancelled while its workspace is still being prepared arrives with the
-      // signal set, and `abort` does not fire again.
-      if (run.signal?.aborted) stopped();
-      else run.signal?.addEventListener("abort", stopped);
-      if (options.emits) run.onEvent?.({ t: "assistant", text: "working" });
-      started();
-      await blocked;
-      return {
-        ok: true,
-        text: label,
-        sessionId: "s",
-        turns: 1,
-        costUsd: 0,
-        subtype: "success",
-        terminalReason: "completed",
-      };
-    },
-  };
-
-  return { engine, state, running, release: () => release() };
 }
 
 async function runnerOn(double: ServerDouble, engine: Engine, log = quiet) {
