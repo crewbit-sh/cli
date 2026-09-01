@@ -7,6 +7,8 @@ import {
   RUNNER_VERSION,
   startRunner,
 } from "./index.ts";
+import { newestRelease } from "./latest.ts";
+import { outdatedNotice } from "./version.ts";
 
 const USAGE = `crewbit - execute Crewbit Jobs with your own Claude Code
 
@@ -42,6 +44,18 @@ if (values.help) {
 
 const token = values.token ?? process.env.CREWBIT_TOKEN;
 const log = createLogger("crewbit-runner");
+
+// Here rather than inside `startRunner`, so the library nobody's tests should
+// have to take offline never reaches a third party: the service drives this
+// package in its own suite, and a version check there would be a network call
+// per test. Never awaited either, which is the other half of `latest.ts`: a
+// runner behind an allowlist starts at the same speed as one that is not.
+void newestRelease()
+  .then((newest) => {
+    const notice = newest && outdatedNotice(RUNNER_VERSION, newest);
+    if (notice) log.warning(notice, { version: RUNNER_VERSION, latest: newest });
+  })
+  .catch(() => {});
 
 const runner = await startRunner({
   url: values.server,
