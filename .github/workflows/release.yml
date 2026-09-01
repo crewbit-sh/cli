@@ -68,6 +68,16 @@ jobs:
         if: steps.prepare.outputs.should_release == 'true'
         run: npm run build:macos-arm64
 
+      # Apple Silicon shipped in 2020 and an Intel Mac bought the year before
+      # is still five years old today, not retired. Reported live against
+      # v0.1.2: an Intel Mac downloading crewbit-macos-arm64 (the only macOS
+      # binary that existed) got Gatekeeper's "is damaged" refusal, the same
+      # wording an unsigned binary gets on the right architecture too — so the
+      # missing target read as a signing problem until somebody checked.
+      - name: Build macOS x64
+        if: steps.prepare.outputs.should_release == 'true'
+        run: npm run build:macos-x64
+
       - name: Build Linux x64
         if: steps.prepare.outputs.should_release == 'true'
         run: npm run build:linux-x64
@@ -117,5 +127,6 @@ jobs:
           body_path: release-notes.md
           files: |
             bin/crewbit-macos-arm64
+            bin/crewbit-macos-x64
             bin/crewbit-linux-x64
             CHANGELOG.md

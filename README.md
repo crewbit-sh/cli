@@ -10,9 +10,10 @@ to the server is [`@crewbit/protocol`](https://github.com/crewbit-sh/protocol).
 
 ## Install
 
-Download the binary for your platform from
-[Releases](https://github.com/crewbit-sh/cli/releases): `crewbit-macos-arm64`
-or `crewbit-linux-x64`.
+Download the binary for your platform from the
+[latest release](https://github.com/crewbit-sh/cli/releases/latest):
+`crewbit-macos-arm64` (Apple Silicon), `crewbit-macos-x64` (Intel), or
+`crewbit-linux-x64`.
 
 ## Use
 
