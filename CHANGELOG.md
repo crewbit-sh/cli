@@ -6,6 +6,12 @@ Upgrading is replacing the binary and starting it again. Stop the old one once
 and it finishes what it is holding before it exits, so an upgrade costs you
 nothing that was in flight. Stop it a second time and it exits straight away.
 
+## 0.1.2
+
+### Fixed
+
+- the reconnect log counts the attempt it is reporting on
+
 ## 0.1.1
 
 A fix for the most expensive thing that could go wrong: work that finished, and
