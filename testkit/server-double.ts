@@ -25,6 +25,7 @@ import {
   type JobCancelResult,
   type JobCompleteParams,
   type JobEvent,
+  type JobEventParams,
   type JobStatusParams,
   type RunnerCalls,
   type ServerCalls,
@@ -56,7 +57,13 @@ export type ServerDouble = {
   assign(params: JobAssignParams): Promise<JobAssignResult>;
   cancel(jobId: string, reason: CancelReason): Promise<JobCancelResult>;
   statuses(jobId: string): JobStatusParams[];
+  /** Every event the runner sent for the Job, in order, with the batching flattened away. */
   events(jobId: string): JobEvent[];
+  /**
+   * The `job.event` frames themselves, which is what a test about batching
+   * reads: one frame per flush, carrying the sequence the runner assigned it.
+   */
+  batches(jobId: string): JobEventParams[];
   notifications(): HumanNotifyParams[];
   /** Resolves with the Job's completion, once the runner sends it. */
   completionFor(jobId: string): Promise<JobCompleteParams>;
@@ -83,6 +90,7 @@ export async function startServerDouble(options: ServerDoubleOptions = {}): Prom
   const heartbeatSeconds = options.heartbeatSeconds ?? DEFAULT_HEARTBEAT_SECONDS;
   const statuses = new Map<string, JobStatusParams[]>();
   const events = new Map<string, JobEvent[]>();
+  const batches = new Map<string, JobEventParams[]>();
   const notifications: HumanNotifyParams[] = [];
   const completions = new Map<string, (params: JobCompleteParams) => void>();
   const pendingCompletions = new Map<string, JobCompleteParams>();
@@ -161,6 +169,9 @@ export async function startServerDouble(options: ServerDoubleOptions = {}): Prom
           const list = events.get(params.jobId) ?? [];
           list.push(...params.events);
           events.set(params.jobId, list);
+          const frames = batches.get(params.jobId) ?? [];
+          frames.push(params);
+          batches.set(params.jobId, frames);
           settleWaiters();
         },
         "human.notify": (params) => {
@@ -244,6 +255,7 @@ export async function startServerDouble(options: ServerDoubleOptions = {}): Prom
     cancel: (jobId, reason) => connectedPeer().request("job.cancel", { jobId, reason }),
     statuses: (jobId) => statuses.get(jobId) ?? [],
     events: (jobId) => events.get(jobId) ?? [],
+    batches: (jobId) => batches.get(jobId) ?? [],
     notifications: () => [...notifications],
     completionFor: (jobId) =>
       new Promise((resolve) => {
