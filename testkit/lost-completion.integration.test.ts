@@ -15,6 +15,7 @@ import { rm } from "node:fs/promises";
 import { afterEach, describe, expect, test } from "vitest";
 import { createLogger, fakeEngine, startRunner } from "../src/index.ts";
 import { startServerDouble, type ServerDouble } from "./server-double.ts";
+import { recordingLog } from "./support/recording-log.ts";
 
 const stopAll: Array<() => void | Promise<void>> = [];
 /** Workspaces a test deliberately left on disk, which is the thing under test. */
@@ -26,29 +27,6 @@ afterEach(async () => {
   for (const path of kept) await rm(path, { recursive: true, force: true });
   kept.length = 0;
 });
-
-/** A `Logger` a test can wait on a specific line from, without polling. */
-function recordingLog() {
-  const lines: Record<string, unknown>[] = [];
-  const waiters: Array<{ message: string; resolve: (line: Record<string, unknown>) => void }> = [];
-  const log = createLogger("crewbit-runner", (raw) => {
-    const line = JSON.parse(raw) as Record<string, unknown>;
-    lines.push(line);
-    for (const waiter of [...waiters]) {
-      if (line.message !== waiter.message) continue;
-      waiters.splice(waiters.indexOf(waiter), 1);
-      waiter.resolve(line);
-    }
-  });
-  return {
-    log,
-    line: (message: string): Promise<Record<string, unknown>> => {
-      const already = lines.find((l) => l.message === message);
-      if (already) return Promise.resolve(already);
-      return new Promise((resolve) => waiters.push({ message, resolve }));
-    },
-  };
-}
 
 async function server(): Promise<ServerDouble> {
   const double = await startServerDouble();
