@@ -55,6 +55,14 @@ export type ServerDouble = {
   /** Drops the current connection without stopping the double, so the runner reconnects. */
   disconnectRunner(): void;
   assign(params: JobAssignParams): Promise<JobAssignResult>;
+  /**
+   * Every `runner.ready` the runner announced, oldest first. The runner sends
+   * one when it connects and one as each Job leaves its hands, so the second
+   * is what says a Job is finished with, however it ended.
+   */
+  readies(): RunnerCalls["runner.ready"]["params"][];
+  /** Resolves once at least `count` of them have arrived. */
+  waitForReady(count: number): Promise<void>;
   cancel(jobId: string, reason: CancelReason): Promise<JobCancelResult>;
   statuses(jobId: string): JobStatusParams[];
   /** Every event the runner sent for the Job, in order, with the batching flattened away. */
@@ -92,6 +100,7 @@ export async function startServerDouble(options: ServerDoubleOptions = {}): Prom
   const events = new Map<string, JobEvent[]>();
   const batches = new Map<string, JobEventParams[]>();
   const notifications: HumanNotifyParams[] = [];
+  const readyLog: RunnerCalls["runner.ready"]["params"][] = [];
   const completions = new Map<string, (params: JobCompleteParams) => void>();
   const pendingCompletions = new Map<string, JobCompleteParams>();
   const completionRefusals = new Map<string, number>();
@@ -157,7 +166,10 @@ export async function startServerDouble(options: ServerDoubleOptions = {}): Prom
             ...(resume.length ? { resume } : {}),
           };
         },
-        "runner.ready": () => {},
+        "runner.ready": (params) => {
+          readyLog.push(params);
+          settleWaiters();
+        },
         "runner.alive": () => {},
         "job.status": (params) => {
           const list = statuses.get(params.jobId) ?? [];
@@ -252,6 +264,17 @@ export async function startServerDouble(options: ServerDoubleOptions = {}): Prom
     },
     disconnectRunner: () => currentSocket?.terminate(),
     assign: (params) => connectedPeer().request("job.assign", params),
+    readies: () => [...readyLog],
+    waitForReady: (count) =>
+      new Promise((resolve) => {
+        const check = () => readyLog.length >= count;
+        if (check()) {
+          resolve();
+          return;
+        }
+        const wait = () => (check() ? resolve() : waiters.push(wait));
+        waiters.push(wait);
+      }),
     cancel: (jobId, reason) => connectedPeer().request("job.cancel", { jobId, reason }),
     statuses: (jobId) => statuses.get(jobId) ?? [],
     events: (jobId) => events.get(jobId) ?? [],
