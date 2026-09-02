@@ -69,16 +69,16 @@ const ALL_STAGES: Stage[] = ["plan", "code", "pr", "eval"];
  * Job, which is a `JobAssignParams` change and so a protocol change; when that
  * happens this list is the field's default.
  */
-const DELIVERING_STAGES: Stage[] = ["code"];
-const delivers = (stage: Stage): boolean => DELIVERING_STAGES.includes(stage);
+const DELIVERING_STAGES: Set<Stage> = new Set(["code"]);
+const delivers = (stage: Stage): boolean => DELIVERING_STAGES.has(stage);
 /**
  * Stages that work on top of the branch the Run already has, which is not the
  * same set as the ones that push to it: the eval stage reads the change and
  * delivers nothing. Deriving one from the other gave every eval a fresh branch
  * at the base's tip, and every verdict was about an empty diff.
  */
-const CONTINUING_STAGES: Stage[] = ["code", "eval"];
-const continues = (stage: Stage): boolean => CONTINUING_STAGES.includes(stage);
+const CONTINUING_STAGES: Set<Stage> = new Set(["code", "eval"]);
+const continues = (stage: Stage): boolean => CONTINUING_STAGES.has(stage);
 const RECONNECT_MS = 500;
 const MAX_RECONNECT_MS = 30_000;
 /**
