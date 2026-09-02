@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { backoff, MAX_RETRY_MS, reportCompletion } from "./completion.ts";
-import { createLogger, type Logger } from "./log.ts";
+import { createLogger, type Logger } from "../log.ts";
 
 type Line = { message: string; status: string } & Record<string, unknown>;
 

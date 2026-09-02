@@ -13,7 +13,7 @@
  * by luck: the server refuses a second outcome for a Job that already has one.
  */
 
-import { errorFields, type Logger } from "./log.ts";
+import { errorFields, type Logger } from "../log.ts";
 import { waited } from "./wait.ts";
 
 /** First wait between attempts. Doubles from here. */

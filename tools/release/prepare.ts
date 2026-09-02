@@ -4,7 +4,7 @@
  *
  * Three places have to agree, checked by `src/index.test.ts`: `package.json`,
  * the newest `## X.Y.Z` heading in `CHANGELOG.md`, and `RUNNER_VERSION` in
- * `src/index.ts` — the constant `--version` prints and the handshake sends.
+ * `src/runner/index.ts` — the constant `--version` prints and the handshake sends.
  * The service's own release script only ever had the first two; this
  * repository gained the third after `RUNNER_VERSION` was found stuck at
  * `0.0.0` since the first release, so this script writes all three or none.
@@ -87,16 +87,16 @@ const [before, after] =
   at === -1 ? [changelog.trimEnd(), ""] : [changelog.slice(0, at).trimEnd(), changelog.slice(at)];
 writeFileSync("CHANGELOG.md", [before, notes, after].filter(Boolean).join("\n\n"));
 
-const index = readFileSync("src/index.ts", "utf8");
+const index = readFileSync("src/runner/index.ts", "utf8");
 const withVersion = index.replace(
   /export const RUNNER_VERSION = "[^"]*";/,
   `export const RUNNER_VERSION = "${version}";`,
 );
 if (withVersion === index) {
-  console.error("src/index.ts: RUNNER_VERSION not found, nothing written there");
+  console.error("src/runner/index.ts: RUNNER_VERSION not found, nothing written there");
   process.exit(1);
 }
-writeFileSync("src/index.ts", withVersion);
+writeFileSync("src/runner/index.ts", withVersion);
 
 console.log(`${manifest.version} -> ${version}`);
 emit({ should_release: "true", version });

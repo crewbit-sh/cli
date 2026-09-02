@@ -4,7 +4,7 @@ import { consumeStream, failedResult, parseLine } from "./stream.ts";
 import type { EngineEvent, EngineResult } from "./types.ts";
 
 function fixture(name: string): string[] {
-  const path = new URL(`../../fixtures/${name}`, import.meta.url);
+  const path = new URL(`../../../fixtures/${name}`, import.meta.url);
   return readFileSync(path, "utf8").split("\n");
 }
 
