@@ -113,7 +113,14 @@ describe("what the binary is asked to do", () => {
     expect(`${out}${err}`).toContain("no Project given");
   });
 
-  test("`spec` with no verb names the one it has", async () => {
+  test("`spec plan` with no reference says the exact form it wants", async () => {
+    const { code, out, err } = await run("spec", "plan");
+
+    expect(code).toBe(1);
+    expect(`${out}${err}`).toContain("acme/api#12");
+  });
+
+  test("`spec` with no verb names the ones it has", async () => {
     const { code, out, err } = await run("spec");
 
     expect(code).toBe(1);
@@ -158,6 +165,7 @@ describe("what the binary is asked to do", () => {
     expect(out).toContain("crewbit project list");
     expect(out).toContain("crewbit project view <id>");
     expect(out).toContain("crewbit spec list");
+    expect(out).toContain("crewbit spec plan");
   });
 
   test("`run view <id>` refuses --events that is not a non-negative whole number", async () => {

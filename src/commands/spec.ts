@@ -1,7 +1,7 @@
 import { parseArgs } from "node:util";
 import { createLogger, errorFields } from "../log.ts";
 
-export const SPEC_USAGE = `  --project <id>     which Project's Specs, from \`crewbit project list\`
+export const SPEC_USAGE = `  --project <id>     which Project's Specs, for \`list\`, from \`crewbit project list\`
   --token <token>    credential minted on the server's credentials page, or $CREWBIT_TOKEN
   --server <url>     where the Project lives (default https://app.crewbit.sh)
   --output <format>  ai_agent (default) or json, the response's own body`;
@@ -33,6 +33,44 @@ export async function fetchSpecs(
     return { ok: false, status: response.status, reason };
   }
   return { ok: true, body: (await response.json()) as { sources: Listed[] } };
+}
+
+export type PlanResult =
+  | { ok: true; body: { runId?: string } }
+  | { ok: false; status: number; reason: string };
+
+/**
+ * Starting a Run for one Spec. The reference is passed through as the person
+ * typed it and split on the server, so the two do not each own half of a rule
+ * about where the `#` is.
+ */
+export async function planSpec(
+  server: string,
+  ref: string,
+  token: string,
+  options: { send?: Fetch } = {},
+): Promise<PlanResult> {
+  const { send = fetch } = options;
+  const response = await send(`${server.replace(/\/+$/, "")}/api/specs/plan`, {
+    method: "POST",
+    headers: { "content-type": "application/json", authorization: `Bearer ${token}` },
+    body: JSON.stringify({ spec: ref }),
+  });
+  if (!response.ok) {
+    const reason = await response.text().catch(() => response.statusText);
+    return { ok: false, status: response.status, reason };
+  }
+  return { ok: true, body: (await response.json()) as { runId?: string } };
+}
+
+export function renderPlanned(body: { runId?: string }): string {
+  if (!body.runId) return "Planning started.";
+  return [
+    `Planning started: ${body.runId}`,
+    "",
+    `Read it with \`crewbit run view ${body.runId}\`.`,
+    "Nothing is implemented until you approve the plan.",
+  ].join("\n");
 }
 
 export function renderSpecs(sources: Listed[]): string {
@@ -74,14 +112,20 @@ export async function runSpec(argv: string[]): Promise<void> {
   });
 
   const log = createLogger("crewbit-spec");
-  const [verb] = positionals;
+  const [verb, ref] = positionals;
 
-  if (verb !== "list") {
-    log.error(`no "${verb ?? ""}" here: listing them is \`crewbit spec list --project <id>\``);
+  if (verb !== "list" && verb !== "plan") {
+    log.error(
+      `no "${verb ?? ""}" here: it is \`crewbit spec list --project <id>\` or \`crewbit spec plan acme/api#12\``,
+    );
     process.exit(1);
   }
-  if (!values.project) {
+  if (verb === "list" && !values.project) {
     log.error("no Project given: pass --project <id>, which `crewbit project list` prints");
+    process.exit(1);
+  }
+  if (verb === "plan" && !ref) {
+    log.error("no Spec given: pass `crewbit spec plan acme/api#12`, the pair `spec list` prints");
     process.exit(1);
   }
 
@@ -96,9 +140,12 @@ export async function runSpec(argv: string[]): Promise<void> {
     process.exit(1);
   }
 
-  let result: FetchSpecsResult;
+  let result: FetchSpecsResult | PlanResult;
   try {
-    result = await fetchSpecs(values.server, values.project, token);
+    result =
+      verb === "list"
+        ? await fetchSpecs(values.server, values.project as string, token)
+        : await planSpec(values.server, ref as string, token);
   } catch (cause) {
     log.error("could not reach the server", { url: values.server, ...errorFields(cause) });
     process.exit(1);
@@ -109,9 +156,13 @@ export async function runSpec(argv: string[]): Promise<void> {
     process.exit(1);
   }
 
+  if (values.output === "json") {
+    console.log(JSON.stringify(result.body, null, 2));
+    return;
+  }
   console.log(
-    values.output === "json"
-      ? JSON.stringify(result.body, null, 2)
-      : renderSpecs(result.body.sources),
+    verb === "list"
+      ? renderSpecs((result.body as { sources: Listed[] }).sources)
+      : renderPlanned(result.body as { runId?: string }),
   );
 }

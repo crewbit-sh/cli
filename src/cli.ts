@@ -17,6 +17,7 @@ ${RUN_USAGE}
 ${PROJECT_USAGE}
 
   crewbit spec list             the Specs a Project's sources are offering
+  crewbit spec plan <ref>       start planning one, as acme/api#12
 ${SPEC_USAGE}
 
   --version

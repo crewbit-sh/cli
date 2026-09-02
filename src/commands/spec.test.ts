@@ -1,5 +1,12 @@
 import { describe, expect, test } from "bun:test";
-import { type Fetch, fetchSpecs, type Listed, renderSpecs } from "./spec.ts";
+import {
+  type Fetch,
+  fetchSpecs,
+  type Listed,
+  planSpec,
+  renderPlanned,
+  renderSpecs,
+} from "./spec.ts";
 
 describe("reading a Project's Specs off the server", () => {
   test("asks the right path with the project as a query and the credential as a bearer", async () => {
@@ -91,5 +98,58 @@ describe("what the listing prints", () => {
 
   test("says the Project has no source at all rather than printing a blank", () => {
     expect(renderSpecs([])).toContain("No source");
+  });
+});
+
+describe("planning one Spec through the server", () => {
+  test("posts the reference as given, with the credential as a bearer token", async () => {
+    const asked: Array<{ url: string; init: RequestInit }> = [];
+    const send: Fetch = async (url, init) => {
+      asked.push({ url, init });
+      return { ok: true, json: async () => ({ runId: "run_1" }) } as Response;
+    };
+
+    await planSpec("https://app.crewbit.sh", "acme/api#12", "crw_abc", { send });
+
+    expect(asked[0]?.url).toBe("https://app.crewbit.sh/api/specs/plan");
+    expect(asked[0]?.init.method).toBe("POST");
+    expect(asked[0]?.init.headers).toEqual({
+      "content-type": "application/json",
+      authorization: "Bearer crw_abc",
+    });
+    expect(JSON.parse(String(asked[0]?.init.body))).toEqual({ spec: "acme/api#12" });
+  });
+
+  test("a refusal carries the server's words, which is the whole answer", async () => {
+    // The reason is what says which capability is unserved or which Specs this
+    // one waits on. A status alone would throw away the only useful part.
+    const send: Fetch = async () =>
+      ({
+        ok: false,
+        status: 409,
+        statusText: "",
+        text: async () => "blocked: this Spec waits on one Spec that has not landed",
+      }) as Response;
+
+    expect(await planSpec("s", "a/b#1", "t", { send })).toEqual({
+      ok: false,
+      status: 409,
+      reason: "blocked: this Spec waits on one Spec that has not landed",
+    });
+  });
+});
+
+describe("what a started Run prints", () => {
+  test("names the Run and how to read it, because that is the next thing anybody does", () => {
+    const printed = renderPlanned({ runId: "run_1" });
+
+    expect(printed).toContain("run_1");
+    expect(printed).toContain("crewbit run view run_1");
+  });
+
+  test("says a Run started even when the server named none", () => {
+    // The route answers `{ runId: undefined }` for an outcome that succeeded
+    // without one rather than pretending it failed.
+    expect(renderPlanned({})).not.toContain("undefined");
   });
 });
