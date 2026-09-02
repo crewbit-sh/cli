@@ -1,6 +1,5 @@
-import { readFileSync } from "node:fs";
 import { describe, expect, test } from "bun:test";
-import { RUNNER_VERSION } from "./index.ts";
+import { readFileSync } from "node:fs";
 import type {
   Engine,
   EngineEvent,
@@ -11,6 +10,7 @@ import type {
   RunnerHandle,
   RunnerOptions,
 } from "./index.ts";
+import { RUNNER_VERSION } from "./index.ts";
 
 /**
  * `RUNNER_VERSION` is what `--version` prints and what the handshake sends,
@@ -70,4 +70,5 @@ type Published = [
   RunnerHandle,
   RunnerOptions,
 ];
+
 export type { Published };

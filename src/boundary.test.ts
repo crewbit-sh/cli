@@ -6,9 +6,9 @@
  * whose only check is in another repository is a guarantee nobody holds.
  */
 
+import { describe, expect, test } from "bun:test";
 import { spawn } from "node:child_process";
 import { readdirSync, readFileSync } from "node:fs";
-import { describe, expect, test } from "bun:test";
 
 const root = new URL("..", import.meta.url);
 

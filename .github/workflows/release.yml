@@ -64,6 +64,13 @@ jobs:
       # Everything past this point only runs when prepare.ts found something to
       # release. A dispatch with nothing new exits here, cleanly, rather than
       # cutting a version that changes no bytes.
+
+      # `check` is read-only here, unlike crewbit-v2's, which writes: a
+      # formatter that fixes the tree it is judging always passes.
+      - name: Check
+        if: steps.prepare.outputs.should_release == 'true'
+        run: bun run check
+
       - name: Typecheck
         if: steps.prepare.outputs.should_release == 'true'
         run: bun run typecheck

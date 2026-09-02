@@ -11,7 +11,7 @@
  */
 import { afterEach, describe, expect, test } from "bun:test";
 import { createLogger, fakeEngine, startRunner } from "../src/index.ts";
-import { startServerDouble, type ServerDouble } from "./server-double.ts";
+import { type ServerDouble, startServerDouble } from "./server-double.ts";
 import { blockingEngine } from "./support/blocking-engine.ts";
 
 const quiet = createLogger("test", () => {});

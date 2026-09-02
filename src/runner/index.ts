@@ -22,6 +22,7 @@ import {
   type ServerCalls,
   type Stage,
 } from "@crewbit/protocol";
+import { createLogger, errorFields, type Logger } from "../log.ts";
 import { type Batcher, createBatcher } from "./batcher.ts";
 import { reportCompletion } from "./completion.ts";
 import type { Engine, EngineEvent, EngineResult } from "./engine/types.ts";
@@ -34,7 +35,6 @@ import {
   pushed,
   remoteHead,
 } from "./git.ts";
-import { createLogger, errorFields, type Logger } from "../log.ts";
 import { decide } from "./outcome.ts";
 import { retryable, stopReason } from "./reason.ts";
 import { runPrepare, runVerify } from "./verify.ts";

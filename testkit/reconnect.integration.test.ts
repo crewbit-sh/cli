@@ -14,7 +14,7 @@
  */
 import { afterEach, describe, expect, test } from "bun:test";
 import { createLogger, type Engine, startRunner } from "../src/index.ts";
-import { startServerDouble, type ServerDouble } from "./server-double.ts";
+import { type ServerDouble, startServerDouble } from "./server-double.ts";
 import { blockingEngine } from "./support/blocking-engine.ts";
 import { recordingLog } from "./support/recording-log.ts";
 

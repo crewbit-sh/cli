@@ -15,11 +15,9 @@
  */
 import { createServer, type Server } from "node:http";
 import {
+  type CancelReason,
   type HelloResult,
   type HumanNotifyParams,
-  PROTOCOL_VERSION,
-  RpcPeer,
-  type CancelReason,
   type JobAssignParams,
   type JobAssignResult,
   type JobCancelResult,
@@ -27,10 +25,12 @@ import {
   type JobEvent,
   type JobEventParams,
   type JobStatusParams,
+  PROTOCOL_VERSION,
+  RpcPeer,
   type RunnerCalls,
   type ServerCalls,
 } from "@crewbit/protocol";
-import { WebSocketServer, type WebSocket as Socket } from "ws";
+import { type WebSocket as Socket, WebSocketServer } from "ws";
 
 export type ServerDoubleOptions = {
   /** A fixed port, for a test that restarts on the same one. Defaults to an ephemeral one. */
@@ -202,7 +202,10 @@ export async function startServerDouble(options: ServerDoubleOptions = {}): Prom
           settleWaiters();
         },
         "job.complete": (params) => {
-          completionAttemptCounts.set(params.jobId, (completionAttemptCounts.get(params.jobId) ?? 0) + 1);
+          completionAttemptCounts.set(
+            params.jobId,
+            (completionAttemptCounts.get(params.jobId) ?? 0) + 1,
+          );
           const remaining = completionRefusals.get(params.jobId) ?? 0;
           if (remaining > 0) {
             completionRefusals.set(params.jobId, remaining - 1);

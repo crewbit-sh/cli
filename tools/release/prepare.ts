@@ -71,7 +71,9 @@ const notes = release(messages, version, bump);
 if (!values.apply) {
   console.log(`${manifest.version} -> ${version} (${bump})\n`);
   console.log(notes);
-  console.log("\nNothing written. Pass --apply to write package.json, CHANGELOG.md and RUNNER_VERSION.");
+  console.log(
+    "\nNothing written. Pass --apply to write package.json, CHANGELOG.md and RUNNER_VERSION.",
+  );
   process.exit(0);
 }
 

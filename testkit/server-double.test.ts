@@ -9,14 +9,10 @@
  * and pulling the real runner in would make a failure here ambiguous between
  * "the double is wrong" and "the runner is wrong".
  */
-import { WebSocket } from "ws";
-import {
-  PROTOCOL_VERSION,
-  RpcPeer,
-  type RunnerCalls,
-  type ServerCalls,
-} from "@crewbit/protocol";
+
 import { afterEach, describe, expect, test } from "bun:test";
+import { PROTOCOL_VERSION, RpcPeer, type RunnerCalls, type ServerCalls } from "@crewbit/protocol";
+import { WebSocket } from "ws";
 import { startServerDouble } from "./server-double.ts";
 
 type FakeRunner = {
@@ -35,8 +31,12 @@ afterEach(() => {
 function connectFakeRunner(
   url: string,
   handlers: Partial<{
-    "job.assign": (params: ServerCalls["job.assign"]["params"]) => ServerCalls["job.assign"]["result"];
-    "job.cancel": (params: ServerCalls["job.cancel"]["params"]) => ServerCalls["job.cancel"]["result"];
+    "job.assign": (
+      params: ServerCalls["job.assign"]["params"],
+    ) => ServerCalls["job.assign"]["result"];
+    "job.cancel": (
+      params: ServerCalls["job.cancel"]["params"],
+    ) => ServerCalls["job.cancel"]["result"];
   }> = {},
 ): Promise<FakeRunner> {
   const socket = new WebSocket(url);
@@ -153,7 +153,9 @@ describe("what a runner reports mid-job", () => {
     await double.waitForStatus("job-3", 1);
 
     expect(double.statuses("job-3")).toEqual([{ jobId: "job-3", status: "working" }]);
-    expect(double.events("job-3")).toEqual([{ t: "assistant", text: "writing the failing test first" }]);
+    expect(double.events("job-3")).toEqual([
+      { t: "assistant", text: "writing the failing test first" },
+    ]);
     await double.stop();
   });
 

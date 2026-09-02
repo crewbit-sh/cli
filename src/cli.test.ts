@@ -6,8 +6,8 @@
  * `process.argv` and exits, and half of what is asserted here is the exit code.
  */
 
-import { spawn } from "node:child_process";
 import { describe, expect, test } from "bun:test";
+import { spawn } from "node:child_process";
 
 const CLI = new URL("cli.ts", import.meta.url).pathname;
 

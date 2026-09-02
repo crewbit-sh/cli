@@ -8,6 +8,7 @@
     ".": "./src/index.ts"
   },
   "scripts": {
+    "check": "biome check .",
     "typecheck": "tsc --noEmit",
     "test": "bun test --timeout 60000",
     "build:macos-arm64": "bun build --compile --target=bun-darwin-arm64 --outfile=bin/crewbit-macos-arm64 src/cli.ts",
@@ -19,6 +20,7 @@
     "@crewbit/protocol": "^1.0.0"
   },
   "devDependencies": {
+    "@biomejs/biome": "^2.3.4",
     "@types/bun": "^1.4.0",
     "@types/node": "^22.10.5",
     "@types/ws": "^8.18.1",

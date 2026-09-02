@@ -1,4 +1,4 @@
-import { runRunner, RUNNER_USAGE } from "./commands/runner.ts";
+import { RUNNER_USAGE, runRunner } from "./commands/runner.ts";
 import { RUNNER_VERSION } from "./runner/index.ts";
 
 const USAGE = `crewbit - run Crewbit work with your own Claude Code

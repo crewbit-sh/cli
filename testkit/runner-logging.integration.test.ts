@@ -16,8 +16,8 @@
  */
 import { afterEach, describe, expect, test } from "bun:test";
 import { fakeEngine, REFUSED_HANDSHAKE, startRunner } from "../src/index.ts";
-import { startServerDouble, type ServerDouble } from "./server-double.ts";
-import { recordingLog, type RecordingLog } from "./support/recording-log.ts";
+import { type ServerDouble, startServerDouble } from "./server-double.ts";
+import { type RecordingLog, recordingLog } from "./support/recording-log.ts";
 
 const stopAll: Array<() => void | Promise<void>> = [];
 

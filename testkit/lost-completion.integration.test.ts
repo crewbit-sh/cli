@@ -10,11 +10,12 @@
  *
  * Ported from the service's own suite.
  */
+
+import { afterEach, describe, expect, test } from "bun:test";
 import { existsSync } from "node:fs";
 import { rm } from "node:fs/promises";
-import { afterEach, describe, expect, test } from "bun:test";
 import { createLogger, fakeEngine, startRunner } from "../src/index.ts";
-import { startServerDouble, type ServerDouble } from "./server-double.ts";
+import { type ServerDouble, startServerDouble } from "./server-double.ts";
 import { recordingLog } from "./support/recording-log.ts";
 
 const stopAll: Array<() => void | Promise<void>> = [];

@@ -1,8 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import { type Fetch, newestRelease } from "./latest.ts";
 
-const answering = (body: unknown, ok = true): Fetch =>
-  async () => ({ ok, json: async () => body }) as Response;
+const answering =
+  (body: unknown, ok = true): Fetch =>
+  async () =>
+    ({ ok, json: async () => body }) as Response;
 
 describe("asking GitHub which release is newest", () => {
   test("reads the tag, without the v a version does not carry", async () => {

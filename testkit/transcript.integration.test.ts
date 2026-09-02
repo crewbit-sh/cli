@@ -14,7 +14,7 @@
  */
 import { afterEach, describe, expect, test } from "bun:test";
 import { createLogger, fakeEngine, startRunner } from "../src/index.ts";
-import { startServerDouble, type ServerDouble } from "./server-double.ts";
+import { type ServerDouble, startServerDouble } from "./server-double.ts";
 
 const quiet = createLogger("test", () => {});
 const stopAll: Array<() => void | Promise<void>> = [];
@@ -100,9 +100,7 @@ describe("what the engine said", () => {
       '{"is_error":false,"num_turns":1,"session_id":"s","subtype":"success","terminal_reason":"completed","result":"x","type":"result"}',
     ]);
 
-    const said = double
-      .events("job-4")
-      .flatMap((e) => (e.t === "assistant" ? [e.text] : []));
+    const said = double.events("job-4").flatMap((e) => (e.t === "assistant" ? [e.text] : []));
 
     expect(said).toEqual(["first", "second"]);
   });
