@@ -106,6 +106,20 @@ describe("what the binary is asked to do", () => {
     expect(`${out}${err}`).toContain("crewbit run view");
   });
 
+  test("`run approve` routes, and asks for the id before the credential", async () => {
+    const { code, out, err } = await run("run", "approve");
+
+    expect(code).toBe(1);
+    expect(`${out}${err}`).toContain("no Run id given");
+  });
+
+  test("a verb `run` does not have names the ones it does", async () => {
+    const { code, out, err } = await run("run", "merge", "run_1");
+
+    expect(code).toBe(1);
+    expect(`${out}${err}`).toContain("approve");
+  });
+
   test("`spec list` routes, and asks for the Project before the credential", async () => {
     const { code, out, err } = await run("spec", "list");
 
@@ -162,6 +176,7 @@ describe("what the binary is asked to do", () => {
 
     expect(out).toContain("crewbit runner");
     expect(out).toContain("crewbit run view <id>");
+    expect(out).toContain("crewbit run approve <id>");
     expect(out).toContain("crewbit project list");
     expect(out).toContain("crewbit project view <id>");
     expect(out).toContain("crewbit spec list");

@@ -10,6 +10,9 @@ const USAGE = `crewbit - run Crewbit work with your own Claude Code
 ${RUNNER_USAGE}
 
   crewbit run view <id>         read one Run for investigation
+  crewbit run approve <id>      answer the plan gate: the code stage runs next
+  crewbit run reject <id>       send it back, with --reason
+  crewbit run replan <id>       plan again from the Spec as it is now
 ${RUN_USAGE}
 
   crewbit project list          the Projects this credential's org owns

@@ -1,5 +1,12 @@
 import { describe, expect, test } from "bun:test";
-import { type Fetch, fetchRun, type RunProjection, renderAiAgent } from "./run.ts";
+import {
+  answerGate,
+  type Fetch,
+  fetchRun,
+  type RunProjection,
+  renderAiAgent,
+  renderAnswered,
+} from "./run.ts";
 
 const answering =
   (body: unknown, ok = true, status = 200): Fetch =>
@@ -192,5 +199,71 @@ describe("the ai_agent rendering", () => {
 
     expect(rendered).toContain("none recorded");
     expect(rendered).not.toContain("--events");
+  });
+});
+
+describe("answering the plan gate", () => {
+  test("posts the action under the Run, with the credential as a bearer token", async () => {
+    const asked: Array<{ url: string; init: RequestInit }> = [];
+    const send: Fetch = async (url, init) => {
+      asked.push({ url, init });
+      return { ok: true, json: async () => ({ runId: "run_1" }) } as Response;
+    };
+
+    await answerGate("https://app.crewbit.sh", "run_1", "approve", "crw_abc", { send });
+
+    expect(asked[0]?.url).toBe("https://app.crewbit.sh/api/runs/run_1/approve");
+    expect(asked[0]?.init.method).toBe("POST");
+    expect(asked[0]?.init.headers).toEqual({
+      "content-type": "application/json",
+      authorization: "Bearer crw_abc",
+    });
+  });
+
+  test("carries the reason when rejecting, because that is what the next plan reads", async () => {
+    const asked: RequestInit[] = [];
+    const send: Fetch = async (_url, init) => {
+      asked.push(init);
+      return { ok: true, json: async () => ({ runId: "run_1" }) } as Response;
+    };
+
+    await answerGate("s", "run_1", "reject", "t", { reason: "the surface is wrong", send });
+
+    expect(JSON.parse(String(asked[0]?.body))).toEqual({ reason: "the surface is wrong" });
+  });
+
+  test("a refusal carries the server's words, which say what to do next", async () => {
+    const send: Fetch = async () =>
+      ({
+        ok: false,
+        status: 409,
+        statusText: "",
+        text: async () => "there is no plan to approve: plan it again first",
+      }) as Response;
+
+    expect(await answerGate("s", "r", "approve", "t", { send })).toEqual({
+      ok: false,
+      status: 409,
+      reason: "there is no plan to approve: plan it again first",
+    });
+  });
+});
+
+describe("what an answered gate prints", () => {
+  test("approving says what happens now, because nothing else will tell you", () => {
+    const printed = renderAnswered("approve", "run_1");
+
+    expect(printed).toContain("run_1");
+    expect(printed).toMatch(/code/i);
+  });
+
+  test("rejecting says the Run is waiting on the Spec being improved", () => {
+    expect(renderAnswered("reject", "run_1")).toMatch(/spec/i);
+  });
+
+  test("replanning says a new plan is coming, not that anything was approved", () => {
+    const printed = renderAnswered("replan", "run_1");
+
+    expect(printed).not.toMatch(/approv/i);
   });
 });

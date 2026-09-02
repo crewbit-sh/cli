@@ -1,7 +1,8 @@
 import { parseArgs } from "node:util";
 import { createLogger, errorFields } from "../log.ts";
 
-export const RUN_USAGE = `  --token <token>    credential minted on the server's credentials page, or $CREWBIT_TOKEN
+export const RUN_USAGE = `  --reason <text>    why, for \`reject\`, and it is what the next plan reads
+  --token <token>    credential minted on the server's credentials page, or $CREWBIT_TOKEN
   --server <url>     where the Run lives (default https://app.crewbit.sh)
   --output <format>  ai_agent (default) or json, the response's own body
   --events <n>       how many recent events to fetch (default 0: counted, not fetched)`;
@@ -33,6 +34,47 @@ export async function fetchRun(
     return { ok: false, status: response.status, reason };
   }
   return { ok: true, body: await response.json() };
+}
+
+export type Gate = "approve" | "reject" | "replan";
+
+export type GateResult =
+  | { ok: true; body: { runId?: string } }
+  | { ok: false; status: number; reason: string };
+
+/**
+ * Answering the plan gate. The decision is still a person's; this is only where
+ * they press it, and until now the only place was a browser.
+ */
+export async function answerGate(
+  server: string,
+  id: string,
+  gate: Gate,
+  token: string,
+  options: { reason?: string; send?: Fetch } = {},
+): Promise<GateResult> {
+  const { reason, send = fetch } = options;
+  const url = `${server.replace(/\/+$/, "")}/api/runs/${encodeURIComponent(id)}/${gate}`;
+  const response = await send(url, {
+    method: "POST",
+    headers: { "content-type": "application/json", authorization: `Bearer ${token}` },
+    body: JSON.stringify(reason === undefined ? {} : { reason }),
+  });
+  if (!response.ok) {
+    const text = await response.text().catch(() => response.statusText);
+    return { ok: false, status: response.status, reason: text };
+  }
+  return { ok: true, body: (await response.json()) as { runId?: string } };
+}
+
+/** What happens next, which nothing else is going to say on a terminal. */
+export function renderAnswered(gate: Gate, id: string): string {
+  const said: Record<Gate, string> = {
+    approve: "the code stage runs next, on whichever runner takes it",
+    reject: "it waits on the Spec being improved, and your reason is what the next plan reads",
+    replan: "the plan stage runs again, from the Spec as it is now",
+  };
+  return `${id}: ${said[gate]}.`;
 }
 
 type RunView = {
@@ -146,25 +188,30 @@ export async function runRun(argv: string[]): Promise<void> {
       server: { type: "string", default: "https://app.crewbit.sh" },
       output: { type: "string", default: "ai_agent" },
       events: { type: "string" },
+      reason: { type: "string" },
     },
   });
 
   const log = createLogger("crewbit-run");
   const [verb, id] = positionals;
+  const GATES: Gate[] = ["approve", "reject", "replan"];
 
   // `crewbit run <id>` was the whole command in v0.5.0 and is gone. An id is not
   // a verb, so it is named back rather than read as one: reading it as a verb
   // would answer "no Run id given" for somebody who gave exactly that.
-  if (verb !== "view") {
+  const gate = GATES.find((one) => one === verb);
+  if (verb !== "view" && !gate) {
+    // The exact form and not only the verb list. `crewbit run <id>` was the
+    // whole command in v0.5.0, so the commonest way to land here is an id where
+    // a verb goes, and that person needs the line to type rather than a menu.
+    const forms = `\`crewbit run view <id>\`, and the verbs are view, ${GATES.join(", ")}`;
     log.error(
-      verb
-        ? `no "${verb}" here: reading one Run is \`crewbit run view <id>\``
-        : "nothing asked: reading one Run is `crewbit run view <id>`",
+      verb ? `no "${verb}" here: reading one Run is ${forms}` : `nothing asked: it is ${forms}`,
     );
     process.exit(1);
   }
   if (!id) {
-    log.error("no Run id given: pass `crewbit run view <id>`");
+    log.error(`no Run id given: pass \`crewbit run ${verb} <id>\``);
     process.exit(1);
   }
 
@@ -188,9 +235,11 @@ export async function runRun(argv: string[]): Promise<void> {
     }
   }
 
-  let result: FetchRunResult;
+  let result: FetchRunResult | GateResult;
   try {
-    result = await fetchRun(values.server, id, token, { events });
+    result = gate
+      ? await answerGate(values.server, id, gate, token, { reason: values.reason })
+      : await fetchRun(values.server, id, token, { events });
   } catch (cause) {
     log.error("could not reach the server", { url: values.server, ...errorFields(cause) });
     process.exit(1);
@@ -201,9 +250,9 @@ export async function runRun(argv: string[]): Promise<void> {
     process.exit(1);
   }
 
-  console.log(
-    values.output === "json"
-      ? JSON.stringify(result.body, null, 2)
-      : renderAiAgent(result.body as RunProjection),
-  );
+  if (values.output === "json") {
+    console.log(JSON.stringify(result.body, null, 2));
+    return;
+  }
+  console.log(gate ? renderAnswered(gate, id) : renderAiAgent(result.body as RunProjection));
 }
