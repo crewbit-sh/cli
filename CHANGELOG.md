@@ -6,6 +6,18 @@ Upgrading is replacing the binary and starting it again. Stop the old one once
 and it finishes what it is holding before it exits, so an upgrade costs you
 nothing that was in flight. Stop it a second time and it exits straight away.
 
+## 0.6.0
+
+### Breaking
+
+- crewbit lists your projects and reads one, and every command takes a verb
+
+### Added
+
+- crewbit starts planning a spec from the command line
+- crewbit lists the specs a project is offering
+- crewbit lists your projects and reads one, and every command takes a verb
+
 ## 0.5.0
 
 ### Added
