@@ -1,6 +1,16 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, test } from "bun:test";
 import { RUNNER_VERSION } from "./index.ts";
+import type {
+  Engine,
+  EngineEvent,
+  EngineResult,
+  EngineRun,
+  FakeEngine,
+  Logger,
+  RunnerHandle,
+  RunnerOptions,
+} from "./index.ts";
 
 /**
  * `RUNNER_VERSION` is what `--version` prints and what the handshake sends,
@@ -27,3 +37,44 @@ describe("the version the binary reports", () => {
     expect(RUNNER_VERSION).toBe(newest);
   });
 });
+
+/**
+ * The facade is `crewbit-v2`'s contract, and that repository pins a tag: a name
+ * dropped here is discovered over there, at its next release, as a build that
+ * stopped compiling for no reason anybody changed. This is the list, asserted
+ * as a whole so a removal and an accidental addition both show up.
+ */
+describe("what the package publishes", () => {
+  test("every name a consumer imports is still on it", async () => {
+    const facade = await import("./index.ts");
+
+    expect(Object.keys(facade).sort()).toEqual([
+      "REFUSED_HANDSHAKE",
+      "RUNNER_VERSION",
+      "buildArgs",
+      "buildEnv",
+      "claudeCliEngine",
+      "consumeStream",
+      "createLogger",
+      "errorFields",
+      "failedResult",
+      "fakeEngine",
+      "parseLine",
+      "startRunner",
+    ]);
+  });
+});
+
+// The other half of the surface, which has no runtime presence to assert on:
+// eight types, checked by this file compiling.
+type Published = [
+  Engine,
+  EngineEvent,
+  EngineResult,
+  EngineRun,
+  FakeEngine,
+  Logger,
+  RunnerHandle,
+  RunnerOptions,
+];
+export type { Published };
