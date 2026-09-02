@@ -10,7 +10,7 @@
  * below: stop the engine, say nothing about the run it abandoned, and give the
  * slot back.
  */
-import { afterEach, describe, expect, test } from "vitest";
+import { afterEach, describe, expect, test } from "bun:test";
 import { createLogger, fakeEngine, startRunner } from "../src/index.ts";
 import { startServerDouble, type ServerDouble } from "./server-double.ts";
 import { blockingEngine, type BlockingEngine } from "./support/blocking-engine.ts";

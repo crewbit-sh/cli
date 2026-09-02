@@ -10,7 +10,7 @@
  * runner has gone quiet for long enough to take its Jobs back is the server's,
  * and it stays there with the socket that greets and then says nothing.
  */
-import { afterEach, describe, expect, test } from "vitest";
+import { afterEach, describe, expect, test } from "bun:test";
 import { createLogger, fakeEngine, startRunner } from "../src/index.ts";
 import { startServerDouble } from "./server-double.ts";
 

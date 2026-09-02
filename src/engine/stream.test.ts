@@ -1,5 +1,5 @@
 import { readFileSync } from "node:fs";
-import { describe, expect, test } from "vitest";
+import { describe, expect, test } from "bun:test";
 import { consumeStream, failedResult, parseLine } from "./stream.ts";
 import type { EngineEvent, EngineResult } from "./types.ts";
 

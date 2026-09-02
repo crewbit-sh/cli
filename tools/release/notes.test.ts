@@ -4,7 +4,7 @@
  * it without the repository.
  */
 
-import { describe, expect, test } from "vitest";
+import { describe, expect, test } from "bun:test";
 import { sectionFor } from "./notes.ts";
 
 const CHANGELOG = `# crewbit

@@ -1,5 +1,5 @@
 import { readFileSync } from "node:fs";
-import { describe, expect, test } from "vitest";
+import { describe, expect, test } from "bun:test";
 import { RUNNER_VERSION } from "./index.ts";
 
 /**
@@ -20,7 +20,10 @@ describe("the version the binary reports", () => {
     const changelog = readFileSync(new URL("../CHANGELOG.md", import.meta.url), "utf8");
     const newest = changelog.match(/^## (\d+\.\d+\.\d+)$/m)?.[1];
 
-    expect(newest, "the changelog declares no version").toBeTruthy();
+    // A throw and not an assertion: a changelog with no version heading at all
+    // is a broken fixture rather than a version that disagrees, and the throw is
+    // also what narrows the match away from undefined.
+    if (!newest) throw new Error("the changelog declares no version");
     expect(RUNNER_VERSION).toBe(newest);
   });
 });

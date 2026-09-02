@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test } from "bun:test";
 import { retryable, stopReason } from "./reason.ts";
 
 /** What an engine that ended cleanly looks like, so each case names its one difference. */

@@ -1,5 +1,5 @@
 import type { JobEvent } from "@crewbit/protocol";
-import { describe, expect, test } from "vitest";
+import { describe, expect, test } from "bun:test";
 import { createBatcher, MAX_BATCH } from "./batcher.ts";
 
 function collect() {

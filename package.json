@@ -9,7 +9,7 @@
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
-    "test": "vitest run",
+    "test": "bun test --timeout 60000",
     "build:macos-arm64": "bun build --compile --target=bun-darwin-arm64 --outfile=bin/crewbit-macos-arm64 src/cli.ts",
     "build:macos-x64": "bun build --compile --target=bun-darwin-x64 --outfile=bin/crewbit-macos-x64 src/cli.ts",
     "build:linux-x64": "bun build --compile --target=bun-linux-x64 --outfile=bin/crewbit-linux-x64 src/cli.ts",
@@ -19,10 +19,10 @@
     "@crewbit/protocol": "^1.0.0"
   },
   "devDependencies": {
+    "@types/bun": "^1.4.0",
     "@types/node": "^22.10.5",
     "@types/ws": "^8.18.1",
     "typescript": "^5.7.3",
-    "vitest": "^4.1.11",
     "ws": "^8.21.3"
   }
 }

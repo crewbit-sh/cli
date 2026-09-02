@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test } from "bun:test";
 import { fakeEngine } from "./fake.ts";
 import type { EngineEvent } from "./types.ts";
 

@@ -12,7 +12,7 @@
  */
 import { existsSync } from "node:fs";
 import { rm } from "node:fs/promises";
-import { afterEach, describe, expect, test } from "vitest";
+import { afterEach, describe, expect, test } from "bun:test";
 import { createLogger, fakeEngine, startRunner } from "../src/index.ts";
 import { startServerDouble, type ServerDouble } from "./server-double.ts";
 import { recordingLog } from "./support/recording-log.ts";

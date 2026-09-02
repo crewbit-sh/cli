@@ -35,18 +35,23 @@ jobs:
           node-version: 22
 
       # Both toolchains, installed together before anything runs, rather than
-      # bun arriving only once the build steps need it: prepare.ts is a bun
-      # script too, and the first real run of this workflow failed thirteen
-      # seconds in on exactly that — installed after the step that needed it,
-      # invisible locally because a developer's PATH already has both. Every
-      # step below this line may assume node, npm, bun and git all exist.
+      # bun arriving only once the build steps need it: the first real run of
+      # this workflow failed thirteen seconds in on exactly that, installed
+      # after the step that needed it, invisible locally because a developer's
+      # PATH already has both.
+      #
+      # Node is still here now that everything else is bun, and it is not a
+      # leftover: `src/boundary.test.ts` and `src/cli.test.ts` spawn the CLI
+      # under it, which is how the rule that this package runs on more than one
+      # runtime is checked at all. Dropping node here would delete that proof
+      # while leaving the tests looking green.
       - name: Install bun
         uses: oven-sh/setup-bun@v2
         with:
           bun-version: 1.3.14
 
       - name: Install dependencies
-        run: npm ci
+        run: bun install --frozen-lockfile
 
       # Writes package.json, CHANGELOG.md and src/index.ts's RUNNER_VERSION to
       # the working tree if there is a feat: or a fix: since the last tag.
@@ -54,22 +59,22 @@ jobs:
       # costs a rerun, a commit and a tag do not.
       - name: Compute the next release
         id: prepare
-        run: npm run release -- --apply
+        run: bun run release -- --apply
 
       # Everything past this point only runs when prepare.ts found something to
       # release. A dispatch with nothing new exits here, cleanly, rather than
       # cutting a version that changes no bytes.
       - name: Typecheck
         if: steps.prepare.outputs.should_release == 'true'
-        run: npm run typecheck
+        run: bun run typecheck
 
       - name: Test
         if: steps.prepare.outputs.should_release == 'true'
-        run: npm test
+        run: bun test --timeout 60000
 
       - name: Build macOS arm64
         if: steps.prepare.outputs.should_release == 'true'
-        run: npm run build:macos-arm64
+        run: bun run build:macos-arm64
 
       # Apple Silicon shipped in 2020 and an Intel Mac bought the year before
       # is still five years old today, not retired. Reported live against
@@ -79,11 +84,11 @@ jobs:
       # missing target read as a signing problem until somebody checked.
       - name: Build macOS x64
         if: steps.prepare.outputs.should_release == 'true'
-        run: npm run build:macos-x64
+        run: bun run build:macos-x64
 
       - name: Build Linux x64
         if: steps.prepare.outputs.should_release == 'true'
-        run: npm run build:linux-x64
+        run: bun run build:linux-x64
 
       # A temporary keychain rather than the runner's default one, unlocked
       # only for this job and thrown away when it ends: the certificate exists

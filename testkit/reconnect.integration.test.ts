@@ -12,7 +12,7 @@
  * runner's half of that case is here, as the `lastSeq` the second handshake
  * declares.
  */
-import { afterEach, describe, expect, test } from "vitest";
+import { afterEach, describe, expect, test } from "bun:test";
 import { createLogger, type Engine, startRunner } from "../src/index.ts";
 import { startServerDouble, type ServerDouble } from "./server-double.ts";
 import { blockingEngine } from "./support/blocking-engine.ts";

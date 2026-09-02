@@ -14,7 +14,7 @@
  * accumulated. They wait on the lines themselves here, and say what the counts
  * mean instead: one chain, and a delay that actually grows.
  */
-import { afterEach, describe, expect, test } from "vitest";
+import { afterEach, describe, expect, test } from "bun:test";
 import { fakeEngine, REFUSED_HANDSHAKE, startRunner } from "../src/index.ts";
 import { startServerDouble, type ServerDouble } from "./server-double.ts";
 import { recordingLog, type RecordingLog } from "./support/recording-log.ts";

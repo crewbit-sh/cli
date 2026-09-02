@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test } from "bun:test";
 import { backoff, MAX_RETRY_MS, reportCompletion } from "./completion.ts";
 import { createLogger, type Logger } from "./log.ts";
 

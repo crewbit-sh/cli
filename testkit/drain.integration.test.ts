@@ -9,7 +9,7 @@
  * the runner's own decision -- refuse new work, let what is running finish --
  * so nothing here needed a real server to prove.
  */
-import { afterEach, describe, expect, test } from "vitest";
+import { afterEach, describe, expect, test } from "bun:test";
 import { createLogger, fakeEngine, startRunner } from "../src/index.ts";
 import { startServerDouble, type ServerDouble } from "./server-double.ts";
 import { blockingEngine } from "./support/blocking-engine.ts";

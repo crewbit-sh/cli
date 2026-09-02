@@ -9,7 +9,7 @@
  * test over it was green.
  */
 
-import { describe, expect, test } from "vitest";
+import { describe, expect, test } from "bun:test";
 import { decide } from "./outcome.ts";
 
 const ran = { ok: true };

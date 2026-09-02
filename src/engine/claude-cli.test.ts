@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test } from "bun:test";
 import { buildArgs, buildEnv } from "./claude-cli.ts";
 
 const base = { prompt: "hi", cwd: "/tmp", maxTurns: 4, onEvent: () => {} };

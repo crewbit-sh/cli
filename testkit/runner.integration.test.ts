@@ -3,7 +3,7 @@
  * own tests use: this file is where a failure means the runner broke, not
  * the double.
  */
-import { afterEach, describe, expect, test } from "vitest";
+import { afterEach, describe, expect, test } from "bun:test";
 import { createLogger, startRunner } from "../src/index.ts";
 import { startServerDouble, type ServerDouble } from "./server-double.ts";
 import { blockingEngine } from "./support/blocking-engine.ts";

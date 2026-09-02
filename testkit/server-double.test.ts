@@ -16,7 +16,7 @@ import {
   type RunnerCalls,
   type ServerCalls,
 } from "@crewbit/protocol";
-import { afterEach, describe, expect, test } from "vitest";
+import { afterEach, describe, expect, test } from "bun:test";
 import { startServerDouble } from "./server-double.ts";
 
 type FakeRunner = {

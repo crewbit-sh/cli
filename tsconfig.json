@@ -1,7 +1,9 @@
 {
   "compilerOptions": {
     "target": "ESNext",
-    "lib": ["ESNext"],
+    "lib": [
+      "ESNext"
+    ],
     "module": "Preserve",
     "moduleResolution": "bundler",
     "moduleDetection": "force",
@@ -14,7 +16,15 @@
     "noImplicitOverride": true,
     "noFallthroughCasesInSwitch": true,
     "skipLibCheck": true,
-    "types": ["node"]
+    "types": [
+      "node",
+      "bun"
+    ]
   },
-  "include": ["src/**/*.ts", "testkit/**/*.ts", "test/**/*.ts", "tools/**/*.ts"]
+  "include": [
+    "src/**/*.ts",
+    "testkit/**/*.ts",
+    "test/**/*.ts",
+    "tools/**/*.ts"
+  ]
 }

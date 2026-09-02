@@ -8,7 +8,7 @@
 
 import { spawn } from "node:child_process";
 import { readdirSync, readFileSync } from "node:fs";
-import { describe, expect, test } from "vitest";
+import { describe, expect, test } from "bun:test";
 
 const root = new URL("..", import.meta.url);
 

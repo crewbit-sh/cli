@@ -8,7 +8,7 @@
  * happened, and nothing here decides that a second time.
  */
 
-import { describe, expect, test } from "vitest";
+import { describe, expect, test } from "bun:test";
 import { bumpFor, nextVersion } from "./bump.ts";
 
 describe("what a subject line asks for", () => {

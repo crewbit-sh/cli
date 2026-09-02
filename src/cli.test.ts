@@ -7,7 +7,7 @@
  */
 
 import { spawn } from "node:child_process";
-import { describe, expect, test } from "vitest";
+import { describe, expect, test } from "bun:test";
 
 const CLI = new URL("cli.ts", import.meta.url).pathname;
 
