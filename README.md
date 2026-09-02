@@ -18,7 +18,7 @@ Download the binary for your platform from the
 ## Use
 
 ```
-crewbit --token <token minted on your Crewbit credentials page> --slots 1
+crewbit runner --token <token minted on your Crewbit credentials page> --slots 1
 ```
 
 Run it again after upgrading; stopping it once finishes whatever Job it is

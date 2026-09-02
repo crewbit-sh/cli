@@ -1,0 +1,78 @@
+/**
+ * The binary's own surface: which words it takes and what it says to somebody
+ * who typed the wrong ones.
+ *
+ * Spawned rather than imported, because `cli.ts` is a script that reads
+ * `process.argv` and exits, and half of what is asserted here is the exit code.
+ */
+
+import { spawn } from "node:child_process";
+import { describe, expect, test } from "vitest";
+
+const CLI = new URL("cli.ts", import.meta.url).pathname;
+
+function run(...args: string[]): Promise<{ code: number | null; out: string; err: string }> {
+  return new Promise((resolve) => {
+    const child = spawn("node", [CLI, ...args], { stdio: ["ignore", "pipe", "pipe"] });
+    let out = "";
+    let err = "";
+    child.stdout.on("data", (chunk) => {
+      out += chunk;
+    });
+    child.stderr.on("data", (chunk) => {
+      err += chunk;
+    });
+    child.on("close", (code) => resolve({ code, out, err }));
+  });
+}
+
+describe("what the binary is asked to do", () => {
+  test("`runner` is what runs one, and it says what it is missing", async () => {
+    const { code, out } = await run("runner");
+
+    // No token anywhere, so it stops before dialling. Reaching this message at
+    // all is the proof the word routed to the runner.
+    expect(code).toBe(1);
+    expect(out).toContain("no token given");
+  });
+
+  test("the old form says what to type now instead of doing nothing", async () => {
+    // `crewbit --token …` was the whole command until this. Somebody has it in a
+    // service file, and the worst answer is a binary that starts, takes no work
+    // and looks healthy.
+    const { code, out } = await run("--token", "not-a-real-token");
+
+    expect(code).toBe(1);
+    expect(out).toContain("crewbit runner");
+  });
+
+  test("a word it does not know is named back, rather than ignored", async () => {
+    const { code, out } = await run("wibble");
+
+    expect(code).toBe(1);
+    expect(out).toContain("wibble");
+  });
+
+  test("no words at all is the usage, and a failure, because nothing was asked", async () => {
+    const { code, out } = await run();
+
+    expect(code).toBe(1);
+    expect(out).toContain("crewbit runner");
+  });
+
+  test("--help is the usage on purpose, so it succeeds", async () => {
+    const { code, out } = await run("--help");
+
+    expect(code).toBe(0);
+    expect(out).toContain("crewbit runner");
+  });
+
+  test("--version answers without being told which command", async () => {
+    // Asking a binary what it is has no subcommand, and `boundary.test.ts`
+    // reaches for this same path to prove the runner still runs under Node.
+    const { code, out } = await run("--version");
+
+    expect(code).toBe(0);
+    expect(out.trim()).toMatch(/^\d+\.\d+\.\d+$/);
+  });
+});

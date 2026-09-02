@@ -10,7 +10,9 @@ import {
 import { newestRelease } from "./latest.ts";
 import { outdatedNotice } from "./version.ts";
 
-const USAGE = `crewbit - execute Crewbit Jobs with your own Claude Code
+const USAGE = `crewbit - run Crewbit work with your own Claude Code
+
+  crewbit runner [options]   connect and execute the work you are given
 
   --token <token>  credential minted on the server's credentials page, or $CREWBIT_TOKEN
   --server <url>   where to dial (default wss://d.crewbit.sh/runner/v1)
@@ -20,7 +22,8 @@ const USAGE = `crewbit - execute Crewbit Jobs with your own Claude Code
   --version
 `;
 
-const { values } = parseArgs({
+const { values, positionals } = parseArgs({
+  allowPositionals: true,
   options: {
     token: { type: "string" },
     server: { type: "string", default: "wss://d.crewbit.sh/runner/v1" },
@@ -32,6 +35,8 @@ const { values } = parseArgs({
   },
 });
 
+// Before the command is read, because "what are you" and "how do I use you" are
+// questions about the binary rather than about any one thing it does.
 if (values.version) {
   console.log(RUNNER_VERSION);
   process.exit(0);
@@ -40,6 +45,27 @@ if (values.version) {
 if (values.help) {
   console.log(USAGE);
   process.exit(0);
+}
+
+/**
+ * The command, which is a word rather than the whole binary.
+ *
+ * `crewbit --token …` used to be the entire interface, and running the runner is
+ * about to stop being the only thing this does. Naming it now costs one word
+ * from somebody who has typed the command twice, and costs nothing at all
+ * later, when the second command would otherwise have had to be a flag.
+ *
+ * Everything but the runner is refused rather than assumed, including nothing:
+ * a binary that starts, takes no work and looks healthy is the worst answer
+ * available to somebody whose service file still says the old form.
+ */
+const [command] = positionals;
+
+if (command !== "runner") {
+  console.log(USAGE);
+  if (command) console.log(`\ncrewbit has no "${command}" command.`);
+  else console.log("\nNothing to do: the runner is `crewbit runner`.");
+  process.exit(1);
 }
 
 const token = values.token ?? process.env.CREWBIT_TOKEN;
