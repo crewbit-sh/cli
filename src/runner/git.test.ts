@@ -237,7 +237,13 @@ describe("the push guard", () => {
     const origin = bareOrigin();
     const { workspace, repo } = await workspaceOn(origin);
     await pushed(workspace, repo);
-    rmSync(repo.url, { recursive: true, force: true });
+    // `force` is deliberately absent, and the existence check is not redundant
+    // with it. This failed once on a macOS runner with a real SHA back, which
+    // reads as `remoteHead` being broken and is indistinguishable from the
+    // remote never having been removed. `force` would have swallowed the second
+    // one. Whichever it is next time, it now says which.
+    rmSync(repo.url, { recursive: true });
+    expect(existsSync(repo.url)).toBe(false);
 
     expect(await remoteHead(workspace, repo)).toBeUndefined();
   });
