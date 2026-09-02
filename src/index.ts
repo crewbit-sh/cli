@@ -1,10 +1,6 @@
 /**
- * What the package publishes, and nothing else.
- *
- * `crewbit-v2` drives this from its own suite and pins a tag, so this list is a
- * contract with another repository rather than a convenience: a name dropped
- * here is discovered over there, at its next release. `index.test.ts` asserts
- * the whole of it.
+ * What the package publishes. `crewbit-v2` pins a tag, so a name dropped here is
+ * discovered over there at its next release; `index.test.ts` asserts the list.
  */
 
 export { createLogger, errorFields, type Logger } from "./log.ts";

@@ -38,12 +38,6 @@ describe("the version the binary reports", () => {
   });
 });
 
-/**
- * The facade is `crewbit-v2`'s contract, and that repository pins a tag: a name
- * dropped here is discovered over there, at its next release, as a build that
- * stopped compiling for no reason anybody changed. This is the list, asserted
- * as a whole so a removal and an accidental addition both show up.
- */
 describe("what the package publishes", () => {
   test("every name a consumer imports is still on it", async () => {
     const facade = await import("./index.ts");
@@ -65,8 +59,7 @@ describe("what the package publishes", () => {
   });
 });
 
-// The other half of the surface, which has no runtime presence to assert on:
-// eight types, checked by this file compiling.
+// The eight types have no runtime presence, so their check is this compiling.
 type Published = [
   Engine,
   EngineEvent,

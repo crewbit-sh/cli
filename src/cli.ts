@@ -1,66 +1,35 @@
-import { parseArgs } from "node:util";
-import {
-  claudeCliEngine,
-  createLogger,
-  fakeEngine,
-  REFUSED_HANDSHAKE,
-  RUNNER_VERSION,
-  startRunner,
-} from "./index.ts";
-import { newestRelease } from "./latest.ts";
-import { outdatedNotice } from "./version.ts";
+import { runRunner, RUNNER_USAGE } from "./commands/runner.ts";
+import { RUNNER_VERSION } from "./runner/index.ts";
 
 const USAGE = `crewbit - run Crewbit work with your own Claude Code
 
   crewbit runner [options]   connect and execute the work you are given
 
-  --token <token>  credential minted on the server's credentials page, or $CREWBIT_TOKEN
-  --server <url>   where to dial (default wss://d.crewbit.sh/runner/v1)
-  --slots <n>      how many Jobs to run at once (default 1)
-  --fake           replay a recorded stream instead of spending tokens
-  --quiet          only report Job outcomes, not the transcript
+${RUNNER_USAGE}
   --version
 `;
 
-const { values, positionals } = parseArgs({
-  allowPositionals: true,
-  options: {
-    token: { type: "string" },
-    server: { type: "string", default: "wss://d.crewbit.sh/runner/v1" },
-    slots: { type: "string", default: "1" },
-    fake: { type: "boolean", default: false },
-    quiet: { type: "boolean", default: false },
-    version: { type: "boolean", default: false },
-    help: { type: "boolean", default: false },
-  },
-});
+const argv = process.argv.slice(2);
 
-// Before the command is read, because "what are you" and "how do I use you" are
+// Read before the command, because "what are you" and "how do I use you" are
 // questions about the binary rather than about any one thing it does.
-if (values.version) {
+if (argv.includes("--version")) {
   console.log(RUNNER_VERSION);
   process.exit(0);
 }
 
-if (values.help) {
+if (argv.includes("--help")) {
   console.log(USAGE);
   process.exit(0);
 }
 
-/**
- * The command, which is a word rather than the whole binary.
- *
- * `crewbit --token …` used to be the entire interface, and running the runner is
- * about to stop being the only thing this does. Naming it now costs one word
- * from somebody who has typed the command twice, and costs nothing at all
- * later, when the second command would otherwise have had to be a flag.
- *
- * Everything but the runner is refused rather than assumed, including nothing:
- * a binary that starts, takes no work and looks healthy is the worst answer
- * available to somebody whose service file still says the old form.
- */
-const [command] = positionals;
+// A flag in first position is somebody running `crewbit --token …`, the whole
+// interface before the runner became a word, so it is not read as a command.
+const command = argv[0]?.startsWith("-") ? undefined : argv[0];
 
+// No command is refused rather than defaulted to the runner: a binary that
+// starts, takes no work and looks healthy is the worst answer available to
+// somebody whose service file still says the old form.
 if (command !== "runner") {
   console.log(USAGE);
   if (command) console.log(`\ncrewbit has no "${command}" command.`);
@@ -68,90 +37,4 @@ if (command !== "runner") {
   process.exit(1);
 }
 
-const token = values.token ?? process.env.CREWBIT_TOKEN;
-const log = createLogger("crewbit-runner");
-
-// Here rather than inside `startRunner`, so the library nobody's tests should
-// have to take offline never reaches a third party: the service drives this
-// package in its own suite, and a version check there would be a network call
-// per test. Never awaited either, which is the other half of `latest.ts`: a
-// runner behind an allowlist starts at the same speed as one that is not.
-void newestRelease()
-  .then((newest) => {
-    const notice = newest && outdatedNotice(RUNNER_VERSION, newest);
-    if (notice) log.warning(notice, { version: RUNNER_VERSION, latest: newest });
-  })
-  .catch(() => {});
-
-const runner = await startRunner({
-  url: values.server,
-  // The env var is what a service manager sets; the flag is what a human types.
-  token,
-  slots: Number(values.slots),
-  engine: values.fake ? fakeEngine() : claudeCliEngine(),
-  log,
-  // The agent's own stream, through the same logger. Two formats on one stdout
-  // would hand a collector mixed content, and on a server that is the only
-  // record of what the agent did.
-  onEvent: values.quiet
-    ? undefined
-    : (jobId, event) => {
-        if (event.t === "assistant") log.info(event.text, { job_id: jobId, event: "assistant" });
-        else if (event.t === "tool_use") {
-          log.info(`${event.name} ${event.summary ?? ""}`.trim(), {
-            job_id: jobId,
-            event: "tool_use",
-            tool: event.name,
-          });
-        } else if (event.t === "rate_limit") {
-          log.warning("rate limit", {
-            job_id: jobId,
-            event: "rate_limit",
-            rate_limit_type: event.rateLimitType,
-            resets_at: new Date(event.resetsAt * 1000).toISOString(),
-          });
-        }
-      },
-}).catch((cause: Error) => {
-  // A refused upgrade surfaces here. A Bun stack trace tells a human nothing
-  // about the one thing that is usually wrong, which is the credential.
-  //
-  // Unless the server answered the handshake and said no, which it only does for
-  // a reason it names: the credential was good enough to get a socket, so
-  // pointing the operator at the credentials page sends them to the wrong place.
-  const refused = cause.message.startsWith(REFUSED_HANDSHAKE);
-  log.error(cause.message, {
-    url: values.server,
-    ...(refused
-      ? {}
-      : {
-          hint: token
-            ? "the server closed the connection before the handshake: the credential may be revoked, or minted against another server, or the server may not be ready. Its credentials are at /runners"
-            : "no token given: pass --token or set CREWBIT_TOKEN",
-        }),
-  });
-  process.exit(1);
-});
-
-/**
- * The first signal drains: no new Jobs, and whatever is running finishes. The
- * second one is a person saying they meant it, and leaves now.
- *
- * Leaving at once loses the engine and everything it has not pushed, which is up
- * to a third of the lease. The Job survives, because the server reclaims it, but
- * the turns spent on it do not, and a code stage is thirty to ninety of them.
- */
-let asked = false;
-for (const signal of ["SIGINT", "SIGTERM"] as const) {
-  process.on(signal, () => {
-    if (asked) {
-      log.warning("runner stopping now, giving up what it was holding");
-      process.exit(1);
-    }
-    asked = true;
-    log.info(
-      "runner draining: finishing what it holds, taking nothing new. Signal again to stop now",
-    );
-    void runner.stop({ drain: true }).then(() => process.exit(0));
-  });
-}
+await runRunner(argv.slice(1));
