@@ -1,6 +1,7 @@
 import { PROJECT_USAGE, runProject } from "./commands/project.ts";
 import { RUN_USAGE, runRun } from "./commands/run.ts";
 import { RUNNER_USAGE, runRunner } from "./commands/runner.ts";
+import { runSpec, SPEC_USAGE } from "./commands/spec.ts";
 import { RUNNER_VERSION } from "./runner/index.ts";
 
 const USAGE = `crewbit - run Crewbit work with your own Claude Code
@@ -14,6 +15,9 @@ ${RUN_USAGE}
   crewbit project list          the Projects this credential's org owns
   crewbit project view <id>     one Project, its sources and what each answers for
 ${PROJECT_USAGE}
+
+  crewbit spec list             the Specs a Project's sources are offering
+${SPEC_USAGE}
 
   --version
 `;
@@ -45,6 +49,8 @@ if (command === "runner") {
   await runRun(argv.slice(1));
 } else if (command === "project") {
   await runProject(argv.slice(1));
+} else if (command === "spec") {
+  await runSpec(argv.slice(1));
 } else {
   console.log(USAGE);
   if (command) console.log(`\ncrewbit has no "${command}" command.`);

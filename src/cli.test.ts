@@ -106,6 +106,20 @@ describe("what the binary is asked to do", () => {
     expect(`${out}${err}`).toContain("crewbit run view");
   });
 
+  test("`spec list` routes, and asks for the Project before the credential", async () => {
+    const { code, out, err } = await run("spec", "list");
+
+    expect(code).toBe(1);
+    expect(`${out}${err}`).toContain("no Project given");
+  });
+
+  test("`spec` with no verb names the one it has", async () => {
+    const { code, out, err } = await run("spec");
+
+    expect(code).toBe(1);
+    expect(`${out}${err}`).toContain("crewbit spec list");
+  });
+
   test("--version answers without being told which command", async () => {
     // Asking a binary what it is has no subcommand, and `boundary.test.ts`
     // reaches for this same path to prove the runner still runs under Node.
@@ -143,6 +157,7 @@ describe("what the binary is asked to do", () => {
     expect(out).toContain("crewbit run view <id>");
     expect(out).toContain("crewbit project list");
     expect(out).toContain("crewbit project view <id>");
+    expect(out).toContain("crewbit spec list");
   });
 
   test("`run view <id>` refuses --events that is not a non-negative whole number", async () => {
