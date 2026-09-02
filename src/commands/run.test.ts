@@ -3,6 +3,7 @@ import {
   answerGate,
   type Fetch,
   fetchRun,
+  pickArtifact,
   type RunProjection,
   renderAiAgent,
   renderAnswered,
@@ -108,6 +109,7 @@ function projection(over: Partial<RunProjection["run"]> = {}): RunProjection {
     },
     transitions: [{ from: "evaluating", to: "in_review", cause: "system", at: AT }],
     events: { lines: [], total: 0 },
+    artifacts: {},
   };
 }
 
@@ -199,6 +201,53 @@ describe("the ai_agent rendering", () => {
 
     expect(rendered).toContain("none recorded");
     expect(rendered).not.toContain("--events");
+  });
+
+  test("lists the artifacts a stage left behind, so a reader knows what to ask for", () => {
+    const withArtifacts = projection();
+    withArtifacts.artifacts = {
+      "engine.txt": "the engine stopped at the turn ceiling",
+      "result.md": "done",
+    };
+
+    const rendered = renderAiAgent(withArtifacts);
+
+    expect(rendered).toContain(
+      "Artifacts: engine.txt, result.md (pass --artifact <name> to read one)",
+    );
+  });
+
+  test("says none, not the hint, when the stage left nothing behind", () => {
+    const rendered = renderAiAgent(projection());
+
+    expect(rendered).toContain("Artifacts: none");
+    expect(rendered).not.toContain("--artifact");
+  });
+});
+
+describe("picking one artifact by name", () => {
+  test("an existing name returns its content", () => {
+    const result = pickArtifact({ "engine.txt": "stopped at the ceiling" }, "engine.txt");
+
+    expect(result).toEqual({ ok: true, content: "stopped at the ceiling" });
+  });
+
+  test("a missing name lists what exists instead", () => {
+    const result = pickArtifact({ "engine.txt": "x", "result.md": "y" }, "verify.txt");
+
+    expect(result).toEqual({
+      ok: false,
+      message: 'no "verify.txt" artifact: it is engine.txt, result.md',
+    });
+  });
+
+  test("a missing name against no artifacts at all says there is none yet", () => {
+    const result = pickArtifact({}, "engine.txt");
+
+    expect(result).toEqual({
+      ok: false,
+      message: 'no "engine.txt" artifact: this Run has none yet',
+    });
   });
 });
 

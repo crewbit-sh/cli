@@ -5,7 +5,8 @@ export const RUN_USAGE = `  --reason <text>    why, for \`reject\`, and it is wh
   --token <token>    credential minted on the server's credentials page, or $CREWBIT_TOKEN
   --server <url>     where the Run lives (default https://app.crewbit.sh)
   --output <format>  ai_agent (default) or json, the response's own body
-  --events <n>       how many recent events to fetch (default 0: counted, not fetched)`;
+  --events <n>       how many recent events to fetch (default 0: counted, not fetched)
+  --artifact <name>  print one artifact the last stage left behind, raw, and nothing else`;
 
 /** Injected so this is testable without the network, the same seam `latest.ts` uses. */
 export type Fetch = (url: string, init: RequestInit) => Promise<Response>;
@@ -102,7 +103,28 @@ export type RunProjection = {
   run: RunView;
   transitions: Transition[];
   events: { lines: TranscriptLine[]; total: number };
+  artifacts: Record<string, string>;
 };
+
+/**
+ * What `--artifact <name>` resolves to. A missing name lists what does exist,
+ * the same way an unknown verb lists the ones there are, rather than just
+ * saying no.
+ */
+export function pickArtifact(
+  artifacts: Record<string, string>,
+  name: string,
+): { ok: true; content: string } | { ok: false; message: string } {
+  const content = artifacts[name];
+  if (content !== undefined) return { ok: true, content };
+  const names = Object.keys(artifacts);
+  return {
+    ok: false,
+    message: names.length
+      ? `no "${name}" artifact: it is ${names.join(", ")}`
+      : `no "${name}" artifact: this Run has none yet`,
+  };
+}
 
 /** `Xm`, `Xh` or `Xd`: enough resolution to tell "just now" from "stuck". */
 function since(at: string, now: Date): string {
@@ -147,9 +169,10 @@ function summarise(line: TranscriptLine): string {
  * and where to look by hand.
  */
 export function renderAiAgent(projection: RunProjection, now = new Date()): string {
-  const { run, transitions, events } = projection;
+  const { run, transitions, events, artifacts } = projection;
   const last = transitions.at(-1);
   const enteredCurrentState = last?.at ?? run.updatedAt;
+  const artifactNames = Object.keys(artifacts);
 
   const lines = [
     `Run ${run.id}: ${run.title}`,
@@ -163,6 +186,9 @@ export function renderAiAgent(projection: RunProjection, now = new Date()): stri
       ? `Last stage run: ${run.lastStage}, ${run.lastTurns ?? "?"}/${run.lastTurnsMax ?? "?"} turns`
       : "No stage has run yet",
     run.costUsd !== null ? `Cost so far: $${run.costUsd.toFixed(2)}` : "Cost so far: nothing yet",
+    artifactNames.length
+      ? `Artifacts: ${artifactNames.join(", ")} (pass --artifact <name> to read one)`
+      : "Artifacts: none",
     "",
     `Transitions (${transitions.length}, oldest first):`,
     ...(transitions.length
@@ -189,6 +215,7 @@ export async function runRun(argv: string[]): Promise<void> {
       output: { type: "string", default: "ai_agent" },
       events: { type: "string" },
       reason: { type: "string" },
+      artifact: { type: "string" },
     },
   });
 
@@ -248,6 +275,16 @@ export async function runRun(argv: string[]): Promise<void> {
   if (!result.ok) {
     log.error(result.reason || `the server answered ${result.status}`, { status: result.status });
     process.exit(1);
+  }
+
+  if (!gate && values.artifact !== undefined) {
+    const picked = pickArtifact((result.body as RunProjection).artifacts, values.artifact);
+    if (!picked.ok) {
+      log.error(picked.message);
+      process.exit(1);
+    }
+    console.log(picked.content);
+    return;
   }
 
   if (values.output === "json") {
