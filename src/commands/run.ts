@@ -150,9 +150,21 @@ export async function runRun(argv: string[]): Promise<void> {
   });
 
   const log = createLogger("crewbit-run");
-  const [id] = positionals;
+  const [verb, id] = positionals;
+
+  // `crewbit run <id>` was the whole command in v0.5.0 and is gone. An id is not
+  // a verb, so it is named back rather than read as one: reading it as a verb
+  // would answer "no Run id given" for somebody who gave exactly that.
+  if (verb !== "view") {
+    log.error(
+      verb
+        ? `no "${verb}" here: reading one Run is \`crewbit run view <id>\``
+        : "nothing asked: reading one Run is `crewbit run view <id>`",
+    );
+    process.exit(1);
+  }
   if (!id) {
-    log.error("no Run id given: pass `crewbit run <id>`");
+    log.error("no Run id given: pass `crewbit run view <id>`");
     process.exit(1);
   }
 

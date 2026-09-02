@@ -67,6 +67,45 @@ describe("what the binary is asked to do", () => {
     expect(out).toContain("crewbit runner");
   });
 
+  test("`project` routes, and says what it is missing rather than the usage", async () => {
+    const { code, out, err } = await run("project", "list");
+
+    // No token anywhere, so it stops before dialling. Reaching this message at
+    // all is the proof the word routed.
+    expect(code).toBe(1);
+    expect(`${out}${err}`).toContain("no token given");
+  });
+
+  test("`project` with no verb names the two it has", async () => {
+    const { code, out, err } = await run("project");
+
+    expect(code).toBe(1);
+    expect(`${out}${err}`).toContain("crewbit project list");
+  });
+
+  test("`project view` with no id says so rather than listing everything", async () => {
+    const { code, out, err } = await run("project", "view");
+
+    expect(code).toBe(1);
+    expect(`${out}${err}`).toContain("no Project id given");
+  });
+
+  test("`run` is a noun with verbs now, and `view` is the one that reads", async () => {
+    const { code, out, err } = await run("run", "view");
+
+    expect(code).toBe(1);
+    expect(`${out}${err}`).toContain("no Run id given");
+  });
+
+  test("the old `run <id>` says what to type instead of reading a Run named view", async () => {
+    // `crewbit run <id>` shipped in v0.5.0 and is gone. An id is not a verb, so
+    // it is refused by name rather than treated as one.
+    const { code, out, err } = await run("run", "run_abc123");
+
+    expect(code).toBe(1);
+    expect(`${out}${err}`).toContain("crewbit run view");
+  });
+
   test("--version answers without being told which command", async () => {
     // Asking a binary what it is has no subcommand, and `boundary.test.ts`
     // reaches for this same path to prove the runner still runs under Node.
@@ -76,35 +115,38 @@ describe("what the binary is asked to do", () => {
     expect(out.trim()).toMatch(/^\d+\.\d+\.\d+$/);
   });
 
-  test("`run` with no id says so, before asking for a credential", async () => {
-    const { code, out } = await run("run");
+  test("`run view` with no id says so, before asking for a credential", async () => {
+    const { code, out } = await run("run", "view");
 
     expect(code).toBe(1);
     expect(out).toContain("no Run id given");
   });
 
   test("`run <id>` with no credential says which one is missing", async () => {
-    const { code, out } = await run("run", "run_1");
+    const { code, out } = await run("run", "view", "run_1");
 
     expect(code).toBe(1);
     expect(out).toContain("no token given");
   });
 
-  test("`run <id>` refuses an output it does not know, before reaching the network", async () => {
-    const { code, out } = await run("run", "run_1", "--token", "t", "--output", "yaml");
+  test("`run view <id>` refuses an output it does not know, before reaching the network", async () => {
+    const { code, out } = await run("run", "view", "run_1", "--token", "t", "--output", "yaml");
 
     expect(code).toBe(1);
     expect(out).toContain("ai_agent or json");
   });
 
-  test("--help lists `run` alongside `runner`", async () => {
+  test("--help lists every command the binary has", async () => {
     const { out } = await run("--help");
 
-    expect(out).toContain("crewbit run <id>");
+    expect(out).toContain("crewbit runner");
+    expect(out).toContain("crewbit run view <id>");
+    expect(out).toContain("crewbit project list");
+    expect(out).toContain("crewbit project view <id>");
   });
 
-  test("`run <id>` refuses --events that is not a non-negative whole number", async () => {
-    const { code, out } = await run("run", "run_1", "--token", "t", "--events", "abc");
+  test("`run view <id>` refuses --events that is not a non-negative whole number", async () => {
+    const { code, out } = await run("run", "view", "run_1", "--token", "t", "--events", "abc");
 
     expect(code).toBe(1);
     expect(out).toContain("--events wants a whole number");

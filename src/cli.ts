@@ -1,3 +1,4 @@
+import { PROJECT_USAGE, runProject } from "./commands/project.ts";
 import { RUN_USAGE, runRun } from "./commands/run.ts";
 import { RUNNER_USAGE, runRunner } from "./commands/runner.ts";
 import { RUNNER_VERSION } from "./runner/index.ts";
@@ -7,8 +8,12 @@ const USAGE = `crewbit - run Crewbit work with your own Claude Code
   crewbit runner [options]      connect and execute the work you are given
 ${RUNNER_USAGE}
 
-  crewbit run <id> [options]    read one Run for investigation
+  crewbit run view <id>         read one Run for investigation
 ${RUN_USAGE}
+
+  crewbit project list          the Projects this credential's org owns
+  crewbit project view <id>     one Project, its sources and what each answers for
+${PROJECT_USAGE}
 
   --version
 `;
@@ -38,6 +43,8 @@ if (command === "runner") {
   await runRunner(argv.slice(1));
 } else if (command === "run") {
   await runRun(argv.slice(1));
+} else if (command === "project") {
+  await runProject(argv.slice(1));
 } else {
   console.log(USAGE);
   if (command) console.log(`\ncrewbit has no "${command}" command.`);
