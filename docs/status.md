@@ -22,17 +22,3 @@ for symmetry is inventing structure. They get a home when a third joins them.
 delete before restructuring. The three names with no external
 reference (`RunnerOptions`, `RunnerHandle`, `EngineRun`) are the types of `startRunner`'s
 own signature, so a consumer typing a variable needs them.
-
-## The command rename is not finished outside this repository
-
-`crewbit --token …` no longer runs anything. Three places still teach the old
-form, all in `crewbit-v2`:
-
-- `packages/web/src/pages/runners.ts`, the block shown on the credentials page
-- `packages/site/src/pages/guides.ts`
-- the test covering that guide
-
-**The order matters in the direction that is easy to get backwards.** A page must
-not teach `crewbit runner` before a release exists that accepts it: the newest
-tag is `v0.3.0`, which understands only the old form. Cut `v0.4.0` from `main`
-first, then update the three.
