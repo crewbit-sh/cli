@@ -75,4 +75,38 @@ describe("what the binary is asked to do", () => {
     expect(code).toBe(0);
     expect(out.trim()).toMatch(/^\d+\.\d+\.\d+$/);
   });
+
+  test("`run` with no id says so, before asking for a credential", async () => {
+    const { code, out } = await run("run");
+
+    expect(code).toBe(1);
+    expect(out).toContain("no Run id given");
+  });
+
+  test("`run <id>` with no credential says which one is missing", async () => {
+    const { code, out } = await run("run", "run_1");
+
+    expect(code).toBe(1);
+    expect(out).toContain("no token given");
+  });
+
+  test("`run <id>` refuses an output it does not know, before reaching the network", async () => {
+    const { code, out } = await run("run", "run_1", "--token", "t", "--output", "yaml");
+
+    expect(code).toBe(1);
+    expect(out).toContain("ai_agent or json");
+  });
+
+  test("--help lists `run` alongside `runner`", async () => {
+    const { out } = await run("--help");
+
+    expect(out).toContain("crewbit run <id>");
+  });
+
+  test("`run <id>` refuses --events that is not a non-negative whole number", async () => {
+    const { code, out } = await run("run", "run_1", "--token", "t", "--events", "abc");
+
+    expect(code).toBe(1);
+    expect(out).toContain("--events wants a whole number");
+  });
 });

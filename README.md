@@ -24,6 +24,17 @@ crewbit runner --token <token minted on your Crewbit credentials page> --slots 1
 Run it again after upgrading; stopping it once finishes whatever Job it is
 holding before it exits, and a second stop exits immediately.
 
+## Investigate a Run
+
+```
+crewbit run <id> --token <the same runner token>
+```
+
+Prints the Run's state, how long it has been there, its transitions and how
+many events its Jobs reported, without opening a browser. Events are counted
+but not fetched by default; `--events <n>` asks for that many. `--output json`
+prints the server's own response instead.
+
 ## What changed between versions
 
 [CHANGELOG.md](./CHANGELOG.md).

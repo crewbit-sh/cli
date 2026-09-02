@@ -1,11 +1,15 @@
+import { RUN_USAGE, runRun } from "./commands/run.ts";
 import { RUNNER_USAGE, runRunner } from "./commands/runner.ts";
 import { RUNNER_VERSION } from "./runner/index.ts";
 
 const USAGE = `crewbit - run Crewbit work with your own Claude Code
 
-  crewbit runner [options]   connect and execute the work you are given
-
+  crewbit runner [options]      connect and execute the work you are given
 ${RUNNER_USAGE}
+
+  crewbit run <id> [options]    read one Run for investigation
+${RUN_USAGE}
+
   --version
 `;
 
@@ -30,11 +34,13 @@ const command = argv[0]?.startsWith("-") ? undefined : argv[0];
 // No command is refused rather than defaulted to the runner: a binary that
 // starts, takes no work and looks healthy is the worst answer available to
 // somebody whose service file still says the old form.
-if (command !== "runner") {
+if (command === "runner") {
+  await runRunner(argv.slice(1));
+} else if (command === "run") {
+  await runRun(argv.slice(1));
+} else {
   console.log(USAGE);
   if (command) console.log(`\ncrewbit has no "${command}" command.`);
   else console.log("\nNothing to do: the runner is `crewbit runner`.");
   process.exit(1);
 }
-
-await runRunner(argv.slice(1));
