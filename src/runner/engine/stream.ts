@@ -31,6 +31,16 @@ export function parseLine(line: string): ParsedLine {
     return { kind: "event", event: { t: "other", raw: line } };
   }
 
+  // The one line item worth naming among everything a stream can carry that
+  // the transcript has no use for: it repeats every few seconds and never
+  // carries content. Measured on a real Run's last 60 events, 24 of 28
+  // opaque lines were exactly this, in a server that keeps a fixed window of
+  // events per Run — each one was a real transcript line pushed out to make
+  // room for a ping. Everything else still arrives as `other`.
+  if (message.type === "system" && message.subtype === "thinking_tokens") {
+    return { kind: "ignored" };
+  }
+
   switch (message.type) {
     case "assistant":
       return { kind: "event", event: assistantEvent(message) };

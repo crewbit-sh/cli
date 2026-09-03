@@ -34,6 +34,22 @@ describe("parseLine", () => {
     expect(parseLine("   ").kind).toBe("ignored");
   });
 
+  test("a thinking-tokens ping is ignored rather than kept as an opaque event", () => {
+    // Measured on a real Run's last 60 events: 24 of 28 `other` lines were
+    // exactly this, and it carries nothing a transcript could show. The server
+    // keeps a fixed window of events per Run, so every one of these was a real
+    // line of the transcript it pushed out to make room.
+    const parsed = parseLine(JSON.stringify({ type: "system", subtype: "thinking_tokens" }));
+
+    expect(parsed.kind).toBe("ignored");
+  });
+
+  test("a system message that is not the ping still becomes an opaque event", () => {
+    const parsed = parseLine(JSON.stringify({ type: "system", subtype: "init" }));
+
+    expect(parsed.kind).toBe("event");
+  });
+
   test("a long summary keeps both ends, because the filename is at the far one", () => {
     const path = `/very/long/prefix${"/nested".repeat(30)}/auth.ts`;
     const parsed = parseLine(
