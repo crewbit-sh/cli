@@ -177,6 +177,9 @@ describe("what the binary is asked to do", () => {
     expect(out).toContain("crewbit runner");
     expect(out).toContain("crewbit run view <id>");
     expect(out).toContain("crewbit run approve <id>");
+    expect(out).toContain("crewbit run reject <id>");
+    expect(out).toContain("crewbit run replan <id>");
+    expect(out).toContain("crewbit run list");
     expect(out).toContain("crewbit project list");
     expect(out).toContain("crewbit project view <id>");
     expect(out).toContain("crewbit spec list");

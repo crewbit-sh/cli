@@ -13,6 +13,7 @@ ${RUNNER_USAGE}
   crewbit run approve <id>      answer the plan gate: the code stage runs next
   crewbit run reject <id>       send it back, with --reason
   crewbit run replan <id>       plan again from the Spec as it is now
+  crewbit run list              the org's live Runs, most recently updated first
 ${RUN_USAGE}
 
   crewbit project list          the Projects this credential's org owns
