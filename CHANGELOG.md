@@ -6,6 +6,12 @@ Upgrading is replacing the binary and starting it again. Stop the old one once
 and it finishes what it is holding before it exits, so an upgrade costs you
 nothing that was in flight. Stop it a second time and it exits straight away.
 
+## 0.8.0
+
+### Added
+
+- crewbit run list shows what is running right now
+
 ## 0.7.0
 
 ### Added
