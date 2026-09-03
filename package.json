@@ -1,6 +1,6 @@
 {
   "name": "@crewbit/cli",
-  "version": "0.8.0",
+  "version": "0.8.1",
   "description": "The Crewbit runner: connects, executes a Job with your own Claude Code, and reports back",
   "license": "MIT",
   "type": "module",
