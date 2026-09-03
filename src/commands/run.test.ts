@@ -3,10 +3,13 @@ import {
   answerGate,
   type Fetch,
   fetchRun,
+  fetchRuns,
   pickArtifact,
   type RunProjection,
+  type RunView,
   renderAiAgent,
   renderAnswered,
+  renderRuns,
 } from "./run.ts";
 
 const answering =
@@ -81,6 +84,62 @@ describe("reading one Run off the server", () => {
     const result = await fetchRun("s", "r", "t", { get });
 
     expect(result).toEqual({ ok: false, status: 404, reason: "no such run" });
+  });
+});
+
+describe("listing the org's live Runs", () => {
+  test("asks the right path with the credential as a bearer token", async () => {
+    const asked: Array<{ url: string; headers: unknown }> = [];
+    const get: Fetch = async (url, init) => {
+      asked.push({ url, headers: init.headers });
+      return { ok: true, json: async () => ({ runs: [] }) } as Response;
+    };
+
+    await fetchRuns("https://app.crewbit.sh", "crw_abc", { get });
+
+    expect(asked).toEqual([
+      { url: "https://app.crewbit.sh/api/runs", headers: { authorization: "Bearer crw_abc" } },
+    ]);
+  });
+
+  test("a trailing slash on the server does not double up", async () => {
+    const asked: string[] = [];
+    const get: Fetch = async (url) => {
+      asked.push(url);
+      return { ok: true, json: async () => ({ runs: [] }) } as Response;
+    };
+
+    await fetchRuns("https://app.crewbit.sh/", "t", { get });
+
+    expect(asked).toEqual(["https://app.crewbit.sh/api/runs"]);
+  });
+
+  test("--limit becomes ?limit= on the request", async () => {
+    const asked: string[] = [];
+    const get: Fetch = async (url) => {
+      asked.push(url);
+      return { ok: true, json: async () => ({ runs: [] }) } as Response;
+    };
+
+    await fetchRuns("s", "t", { limit: 5, get });
+
+    expect(asked).toEqual(["s/api/runs?limit=5"]);
+  });
+
+  test("carries the body back on success", async () => {
+    const body = { runs: [{ id: "r" }] } as unknown as { runs: RunView[] };
+    const result = await fetchRuns("s", "t", { get: answering(body) });
+
+    expect(result).toEqual({ ok: true, body });
+  });
+
+  test("a refusal carries the status and what the server said", async () => {
+    const get: Fetch = async () =>
+      ({ ok: false, status: 401, statusText: "", text: async () => "no such token" }) as Response;
+
+    const result = await fetchRuns("s", "t", { get });
+
+    expect(result).toEqual({ ok: false, status: 401, reason: "no such token" });
   });
 });
 
@@ -222,6 +281,54 @@ describe("the ai_agent rendering", () => {
 
     expect(rendered).toContain("Artifacts: none");
     expect(rendered).not.toContain("--artifact");
+  });
+});
+
+describe("the run list rendering", () => {
+  const run = (over: Partial<RunView> = {}): RunView => ({
+    id: "run_1",
+    state: "in_review",
+    title: "say what a Job is doing",
+    source: "acme/api",
+    externalKey: "6",
+    provider: "github",
+    reviewUrl: null,
+    updatedAt: AT,
+    costUsd: null,
+    jobState: null,
+    jobStage: null,
+    jobRunner: null,
+    lastStage: null,
+    lastTurns: null,
+    lastTurnsMax: null,
+    ...over,
+  });
+
+  test("one line per Run, in the order the server sent them", () => {
+    const rendered = renderRuns([run({ id: "run_1" }), run({ id: "run_2" })]);
+
+    expect(rendered.split("\n")).toHaveLength(2);
+    expect(rendered.indexOf("run_1")).toBeLessThan(rendered.indexOf("run_2"));
+  });
+
+  test("names the state, the Spec and the title", () => {
+    const rendered = renderRuns([
+      run({ state: "coding", source: "acme/api", externalKey: "9", title: "fix the thing" }),
+    ]);
+
+    expect(rendered).toContain("coding");
+    expect(rendered).toContain("acme/api#9");
+    expect(rendered).toContain("fix the thing");
+  });
+
+  test("says how long since it was last touched", () => {
+    const rendered = renderRuns([run({ updatedAt: AT })], new Date(Date.parse(AT) + 34 * HOUR));
+
+    expect(rendered).toContain("34h");
+  });
+
+  test("says plainly when there is nothing live, rather than an empty line", () => {
+    expect(renderRuns([])).toMatch(/no live run/i);
   });
 });
 
