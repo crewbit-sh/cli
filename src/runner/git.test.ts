@@ -186,9 +186,38 @@ describe("a refused push that landed anyway", () => {
     await pushed(workspace, repo);
     rmSync(repo.url, { recursive: true, force: true });
 
+    // TEMP DIAGNOSTIC — remove once the CI-only flake is understood.
+    const localHead = await head(workspace);
+    const remote = await remoteHead(workspace, repo);
+    if (remote !== undefined) {
+      const raw = spawnSync("git", ["ls-remote", repo.url, `refs/heads/${repo.branch}`], {
+        cwd: workspace,
+        env: {
+          ...process.env,
+          GIT_TERMINAL_PROMPT: "0",
+          GIT_CONFIG_GLOBAL: "/dev/null",
+          GIT_CONFIG_SYSTEM: "/dev/null",
+        },
+      });
+      console.error(
+        "DIAG says-no-when-cannot-be-read:",
+        JSON.stringify({
+          repoUrl: repo.url,
+          existsBeforeRaw: existsSync(repo.url),
+          localHead,
+          remoteHeadResult: remote,
+          rawStatus: raw.status,
+          rawStdout: raw.stdout?.toString(),
+          rawStderr: raw.stderr?.toString(),
+          rawError: raw.error?.message,
+        }),
+      );
+    }
+
     // A remote that cannot answer is never a remote that agrees, or the guard
     // is nobody: an unreachable remote would read as work safely delivered.
-    expect(await alreadyOnRemote(workspace, repo)).toBe(false);
+    expect(remote).toBe(undefined);
+    expect(onRemote(localHead, remote)).toBe(false);
   });
 });
 
