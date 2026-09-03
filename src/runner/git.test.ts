@@ -77,6 +77,13 @@ function template(): string {
   // remotes, and a copy pointing at a directory that is gone reads as a fixture
   // bug the first time somebody does.
   spawnSync("git", ["--git-dir", bare, "remote", "remove", "origin"], { stdio: "ignore" });
+  // receive-pack answers the push and only then runs `gc --auto`, detached,
+  // without the pusher waiting on it. A test that deletes this directory right
+  // after pushing can catch that orphaned gc process mid-write and find the
+  // "deleted" repo whole again: reproduced on CI under full-suite load, where
+  // gc has enough time to lose the race. Every copy of this template inherits
+  // the setting, since it lives in the bare repo's own config.
+  spawnSync("git", ["--git-dir", bare, "config", "gc.auto", "0"], { stdio: "ignore" });
   rmSync(seed, { recursive: true, force: true });
   prebuilt = bare;
   return bare;
@@ -186,38 +193,9 @@ describe("a refused push that landed anyway", () => {
     await pushed(workspace, repo);
     rmSync(repo.url, { recursive: true, force: true });
 
-    // TEMP DIAGNOSTIC — remove once the CI-only flake is understood.
-    const localHead = await head(workspace);
-    const remote = await remoteHead(workspace, repo);
-    if (remote !== undefined) {
-      const raw = spawnSync("git", ["ls-remote", repo.url, `refs/heads/${repo.branch}`], {
-        cwd: workspace,
-        env: {
-          ...process.env,
-          GIT_TERMINAL_PROMPT: "0",
-          GIT_CONFIG_GLOBAL: "/dev/null",
-          GIT_CONFIG_SYSTEM: "/dev/null",
-        },
-      });
-      console.error(
-        "DIAG says-no-when-cannot-be-read:",
-        JSON.stringify({
-          repoUrl: repo.url,
-          existsBeforeRaw: existsSync(repo.url),
-          localHead,
-          remoteHeadResult: remote,
-          rawStatus: raw.status,
-          rawStdout: raw.stdout?.toString(),
-          rawStderr: raw.stderr?.toString(),
-          rawError: raw.error?.message,
-        }),
-      );
-    }
-
     // A remote that cannot answer is never a remote that agrees, or the guard
     // is nobody: an unreachable remote would read as work safely delivered.
-    expect(remote).toBe(undefined);
-    expect(onRemote(localHead, remote)).toBe(false);
+    expect(await alreadyOnRemote(workspace, repo)).toBe(false);
   });
 });
 
