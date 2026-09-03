@@ -1,0 +1,19 @@
+# Temporary. Investigates the CI-only failure of git.test.ts:191
+# ("says no when the remote cannot be read at all"). Deleted once the cause
+# is known — not part of the release pipeline.
+name: Debug ls-remote
+
+on:
+  workflow_dispatch: {}
+
+jobs:
+  debug:
+    name: Debug
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.14
+      - run: bun install --frozen-lockfile
+      - run: bun run tools/debug-ls-remote.ts
