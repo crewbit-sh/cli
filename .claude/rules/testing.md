@@ -104,10 +104,16 @@ wrong place, and the tell is that it starts something to assert a branch.
 
 ## Running them
 
-`bun run check`, then `bun run typecheck`, then `bun test --timeout 60000` — the
-order `.github/workflows/release.yml` runs them before it cuts a release, so
-running them in that order locally is running what the release runs. The timeout
-is there for `testkit/`, which dials a real socket and holds the slow files.
+`bun install --frozen-lockfile` first, in a checkout that does not have
+`node_modules` yet. Skipping it does not fail loudly: the suite still runs, and
+the tests that spawn the CLI under node fail on a package they cannot resolve,
+which reads as a page of defects rather than as a missing install.
+
+Then `bun run check`, then `bun run typecheck`, then `bun test --timeout 60000`
+— the order `.github/workflows/release.yml` runs them before it cuts a release,
+so running them in that order locally is running what the release runs. The
+timeout is there for `testkit/`, which dials a real socket and holds the slow
+files.
 
 ## What does not count
 

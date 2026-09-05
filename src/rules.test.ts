@@ -29,6 +29,16 @@ function testCommand(): string {
   return manifest.scripts?.test ?? "";
 }
 
+/** The install a workflow does before it runs anything else. */
+function installIn(workflow: string): string {
+  // `[\s-]*` because a step writes its `run:` either under a `- name:` or
+  // compact on the dash itself, and both are the same install.
+  return workflow.match(/^[\s-]*run: (bun install .+)$/m)?.[1]?.trim() ?? "";
+}
+
+const installCommand = () =>
+  installIn(readFileSync(new URL(".github/workflows/release.yml", root), "utf8"));
+
 const read = (path: string): string | null =>
   existsSync(new URL(path, root)) ? readFileSync(new URL(path, root), "utf8") : null;
 
@@ -110,6 +120,24 @@ describe("the testing rule describes this repository", () => {
 
     expect(command).not.toBe("");
     expect(text).toContain(command);
+  });
+
+  test("and the install the workflow does before it runs any of them", () => {
+    // Measured, not supposed: a checkout with no node_modules runs the three
+    // commands below and fails 34 tests, every one of them a test that spawns
+    // the CLI under node and none of them a defect. The rule names the order
+    // the release runs things in, so it has to name the step that makes that
+    // order work, or it reads as complete while sending the next person there.
+    const text = read(".claude/rules/testing.md") ?? "";
+    const install = installCommand();
+
+    expect(install).not.toBe("");
+    expect(text).toContain(install);
+
+    // And it is genuinely read off the workflow: a workflow installing
+    // something else answers something else, so a rule left quoting the old
+    // flags is what fails rather than this line.
+    expect(installIn("      - run: bun install --production\n")).toBe("bun install --production");
   });
 
   test("it was adapted, not installed unchanged", () => {
