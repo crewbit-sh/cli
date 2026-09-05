@@ -6,6 +6,13 @@ Upgrading is replacing the binary and starting it again. Stop the old one once
 and it finishes what it is holding before it exits, so an upgrade costs you
 nothing that was in flight. Stop it a second time and it exits straight away.
 
+## 0.8.3
+
+### Fixed
+
+- the code stage now reports which files the branch changed
+- a Run no longer gets stuck when the failing test was already broken on main
+
 ## 0.8.2
 
 ### Fixed
