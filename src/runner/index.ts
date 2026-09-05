@@ -28,14 +28,18 @@ import { reportCompletion } from "./completion.ts";
 import type { Engine, EngineEvent, EngineResult } from "./engine/types.ts";
 import {
   alreadyOnRemote,
+  BASE_REF,
   commitAll,
   commitsSince,
+  git,
   head,
+  mergeBase,
   onRemote,
   pushed,
   remoteHead,
 } from "./git.ts";
 import { decide } from "./outcome.ts";
+import { preExistingFailures } from "./pre-existing.ts";
 import { rateLimitIsSafe, rateLimitMessage } from "./rate-limit.ts";
 import { retryable, stopReason } from "./reason.ts";
 import { runPrepare, runVerify } from "./verify.ts";
@@ -509,6 +513,54 @@ export async function startRunner(options: RunnerOptions): Promise<RunnerHandle>
   }
 
   /**
+   * A verify failure the base commit already had is not this change's own.
+   * #9: reruns the identical verify command on the merge-base with the
+   * default branch, in this same checkout, and restores the branch
+   * afterwards either way. No provider call: the merge-base is a ref already
+   * in this clone (`BASE_REF`, stamped when the workspace was prepared), so
+   * this never reaches the remote.
+   *
+   * `undefined` covers every reason the branch's failure stands on its own:
+   * the base could not be found this shallow, the checkout failed, or the
+   * base simply does not share the failure - all three keep today's
+   * behaviour rather than risk calling a real defect pre-existing.
+   */
+  async function preExistingOnBase(
+    job: JobAssignParams,
+    workspace: string,
+    branchReport: string,
+    status: (s: JobStatus, detail?: string) => void,
+  ): Promise<string[] | undefined> {
+    const branch = job.repo?.branch;
+    if (!branch) return undefined;
+
+    const base = await mergeBase(BASE_REF, "HEAD", workspace);
+    if (!base) return undefined;
+
+    const checkedOut = await git(["checkout", "-q", base], workspace);
+    if (checkedOut.code !== 0) {
+      await git(["checkout", "-q", branch], workspace);
+      return undefined;
+    }
+
+    try {
+      status("working", "checking whether the base commit already fails the same way");
+      const onBase = await runVerify(
+        job.harness.verify as { command: string; timeoutSeconds?: number },
+        workspace,
+      );
+      log.info("base verify finished", {
+        job_id: job.jobId,
+        exit_code: onBase.exitCode,
+        command: job.harness.verify?.command,
+      });
+      return preExistingFailures(branchReport, onBase.output);
+    } finally {
+      await git(["checkout", "-q", branch], workspace);
+    }
+  }
+
+  /**
    * The engine, spawned until it either produces something or runs out of
    * attempts. Only the spawn is repeated: `prepare`, the workspace, `collect`,
    * `deliver` and the outcome decision all run once against the last result, so
@@ -688,6 +740,14 @@ export async function startRunner(options: RunnerOptions): Promise<RunnerHandle>
           ? await verify(job, workspace, status)
           : undefined;
 
+      // #9: a verify failure the base commit already has is not this change's
+      // own, so it is worth asking before giving up on the engine. A verify
+      // that passed never runs a second time on the base.
+      const preExisting =
+        verified && verified.exitCode !== 0
+          ? await preExistingOnBase(job, workspace, verified.report, status)
+          : undefined;
+
       // A red verify makes the agent's turns pointless, and they are the
       // expensive part. Not a `return`: the completion is sent after this block,
       // and leaving early here left the Job unfinished and the caller waiting.
@@ -703,7 +763,7 @@ export async function startRunner(options: RunnerOptions): Promise<RunnerHandle>
           outcome: "failed",
           artifacts: { "prepare.txt": prepared.report },
         };
-      } else if (verified && verified.exitCode !== 0) {
+      } else if (verified && verified.exitCode !== 0 && !preExisting) {
         completion = {
           jobId: job.jobId,
           outcome: "complete",
@@ -763,6 +823,10 @@ export async function startRunner(options: RunnerOptions): Promise<RunnerHandle>
             "result.md": result.text || reason || "",
             ...(reason ? { "engine.txt": reason } : {}),
             ...(check ? { "verify.txt": check.report } : {}),
+            // Beside verify.txt, #9: the branch's own failures the base
+            // commit already had, so the eval prompt can read a red check
+            // without mistaking it for this change's own.
+            ...(preExisting ? { "pre-existing.txt": preExisting.join("\n") } : {}),
             // `blocked.md` is the file the server reads for the note it puts on
             // the Run, so this is what puts the failure in front of a person
             // rather than leaving it in an artifact nobody opens.
