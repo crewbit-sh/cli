@@ -70,11 +70,16 @@ that are not the thing they test, and they hide the module that has no test at
 all — a module covered only from outside looks covered, and the coverage belongs
 to the flow rather than to it.
 
-This package is currently the right way round, which is the state to hold rather
-than to reach: every module under `src/` has its unit tests in the same
-directory, and the nine integrated flows in `testkit/` are a small fraction of
-the files. The day a branch is reachable only from `testkit/`, the module that
-owns that branch has no test of its own, whatever the totals say.
+This package is close to the right way round, which is a state to hold rather
+than one to reach: nearly every module under `src/` and `tools/release/` has its
+unit tests in the same directory, against nine integrated flows in `testkit/`.
+
+The exception is the one worth knowing, because it is that failure standing in
+this tree. `src/runner/index.ts` has no unit tests of its own and is reached from
+`testkit/` instead. It is also by a wide margin the largest file here, the piece
+`docs/status.md` records as knowingly not yet split, and those are the same fact
+said twice. What fixes it is splitting it until its branches are reachable by
+calling something; what hides it is one more integration file.
 
 So when a test needs a server to reach a branch, that is a signal about the
 design and not a cost to pay. Something the module decides is only reachable
