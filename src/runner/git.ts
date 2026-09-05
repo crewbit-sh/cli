@@ -129,6 +129,16 @@ export async function diffSince(workspace: string): Promise<string | undefined> 
 }
 
 /**
+ * The paths this branch changed against the base it started from, one per
+ * line and empty when there are none - #10, for a server that has to tell
+ * "touched only what it should" from "touched something else" without
+ * reading the content of the change, and without asking a provider.
+ */
+export async function changedFiles(workspace: string): Promise<string | undefined> {
+  return capture(["diff", "--name-only", `${BASE_REF}..HEAD`], workspace);
+}
+
+/**
  * The grant travels in the url, which is how git takes a token over HTTPS. A
  * local path or an empty token is left alone, so a test can use a directory.
  */

@@ -29,6 +29,7 @@ import type { Engine, EngineEvent, EngineResult } from "./engine/types.ts";
 import {
   alreadyOnRemote,
   BASE_REF,
+  changedFiles,
   commitAll,
   commitsSince,
   git,
@@ -425,6 +426,13 @@ export async function startRunner(options: RunnerOptions): Promise<RunnerHandle>
     // do this itself; a run that hit the ceiling mid-change did not get to.
     await commitAll(workspace, `crewbit: work in progress for ${job.stage}`);
 
+    // #10: a fact about the checkout, not about whether the push landed - the
+    // server refuses a rules pull request that touched anything but the three
+    // files it asked for, and this is how it sees that without a provider
+    // call. Written for every code stage regardless of outcome, because the
+    // runner does not know which Run is which.
+    const changed = { "changed-files.txt": (await changedFiles(workspace)) ?? "" };
+
     const landed = (await pushed(workspace, repo)).ok;
     const commits = await commitsSince(workspace);
     inFlight.commits = commits;
@@ -433,7 +441,7 @@ export async function startRunner(options: RunnerOptions): Promise<RunnerHandle>
       // Nothing to deliver, so nothing to guard. A Stage that wrote only its
       // artifact is a legitimate outcome, and the artifact is not a commit.
       log.info("job produced no commits", { job_id: job.jobId, stage: job.stage });
-      return { commits };
+      return { commits, artifacts: changed };
     }
 
     // The remote is read, not the exit code trusted: a push that reports success
@@ -456,6 +464,7 @@ export async function startRunner(options: RunnerOptions): Promise<RunnerHandle>
         problem: "failed",
         artifacts: {
           "blocked.md": `${commits.length} commit(s) exist locally and the push to ${repo.branch} did not land. The work is on the runner and not on the remote, so this Job cannot be reported as complete.`,
+          ...changed,
         },
       };
     }
@@ -466,7 +475,7 @@ export async function startRunner(options: RunnerOptions): Promise<RunnerHandle>
       commits: commits.length,
       head: local,
     });
-    return { commits };
+    return { commits, artifacts: changed };
   }
 
   /** Runs the project's own check and reports it the way the server reads it. */

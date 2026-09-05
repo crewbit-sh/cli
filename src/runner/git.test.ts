@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   alreadyOnRemote,
+  changedFiles,
   commitAll,
   commitsSince,
   git,
@@ -500,6 +501,29 @@ describe("the diff a reviewer reads", () => {
       encoding: "utf8",
     }).stdout;
     expect(tracked).not.toContain("diff.md");
+  });
+});
+
+describe("the files a branch changed, #10", () => {
+  test("names two added files and one modified one, and nothing untouched", async () => {
+    const origin = bareOrigin();
+    const { workspace } = await workspaceOn(origin);
+
+    writeFileSync(join(workspace, "app.ts"), "export const answer = 43;\n");
+    writeFileSync(join(workspace, "new-one.ts"), "export const one = 1;\n");
+    writeFileSync(join(workspace, "new-two.ts"), "export const two = 2;\n");
+    await commitAll(workspace, "two new files and one changed");
+
+    const changed = (await changedFiles(workspace))?.split("\n") ?? [];
+
+    expect(changed.sort()).toEqual(["app.ts", "new-one.ts", "new-two.ts"]);
+  });
+
+  test("is empty when the branch changed nothing", async () => {
+    const origin = bareOrigin();
+    const { workspace } = await workspaceOn(origin);
+
+    expect(await changedFiles(workspace)).toBe("");
   });
 });
 
