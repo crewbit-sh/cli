@@ -6,6 +6,13 @@ Upgrading is replacing the binary and starting it again. Stop the old one once
 and it finishes what it is holding before it exits, so an upgrade costs you
 nothing that was in flight. Stop it a second time and it exits straight away.
 
+## 0.8.4
+
+### Fixed
+
+- a checked-out repository can no longer make the engine run its own commands
+- a throttled stage no longer floods the transcript with one line per call
+
 ## 0.8.3
 
 ### Fixed
