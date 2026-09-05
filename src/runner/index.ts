@@ -36,6 +36,7 @@ import {
   remoteHead,
 } from "./git.ts";
 import { decide } from "./outcome.ts";
+import { rateLimitIsSafe, rateLimitMessage } from "./rate-limit.ts";
 import { retryable, stopReason } from "./reason.ts";
 import { runPrepare, runVerify } from "./verify.ts";
 import { waited } from "./wait.ts";
@@ -538,13 +539,15 @@ export async function startRunner(options: RunnerOptions): Promise<RunnerHandle>
           batcher.push(event);
           options.onEvent?.(job.jobId, event);
           // The runner cannot reach a person, having no provider credential.
-          // It reports the condition and the server chooses the channel.
-          if (event.t === "rate_limit") {
+          // It reports the condition and the server chooses the channel - but
+          // only a confirmed block, per `rateLimitIsSafe`: a warning the
+          // engine kept working through is not something to schedule around.
+          if (event.t === "rate_limit" && !rateLimitIsSafe(event)) {
             peer.notify("human.notify", {
               jobId: job.jobId,
               level: "warning",
               code: "rate_limited",
-              message: `the ${event.rateLimitType} window is exhausted`,
+              message: rateLimitMessage(event),
               resumeAt: new Date(event.resetsAt * 1000).toISOString(),
             });
           }

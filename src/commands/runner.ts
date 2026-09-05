@@ -1,8 +1,9 @@
 import { parseArgs } from "node:util";
 import { newestRelease } from "../latest.ts";
-import { createLogger } from "../log.ts";
+import { createLogger, type Logger } from "../log.ts";
 import { claudeCliEngine } from "../runner/engine/claude-cli.ts";
 import { fakeEngine } from "../runner/engine/fake.ts";
+import type { EngineEvent } from "../runner/engine/types.ts";
 import { REFUSED_HANDSHAKE, RUNNER_VERSION, startRunner } from "../runner/index.ts";
 import { outdatedNotice } from "../version.ts";
 
@@ -11,6 +12,32 @@ export const RUNNER_USAGE = `  --token <token>  credential minted on the server'
   --slots <n>      how many Jobs to run at once (default 1)
   --fake           replay a recorded stream instead of spending tokens
   --quiet          only report Job outcomes, not the transcript`;
+
+/**
+ * The agent's own stream, through the given logger. Exported so a test can
+ * drive it directly: `startRunner`'s own logger is not injectable from here,
+ * and this is the only place a rate limit's `status` reaches the transcript.
+ */
+export function transcriptLogger(log: Logger): (jobId: string, event: EngineEvent) => void {
+  return (jobId, event) => {
+    if (event.t === "assistant") log.info(event.text, { job_id: jobId, event: "assistant" });
+    else if (event.t === "tool_use") {
+      log.info(`${event.name} ${event.summary ?? ""}`.trim(), {
+        job_id: jobId,
+        event: "tool_use",
+        tool: event.name,
+      });
+    } else if (event.t === "rate_limit") {
+      log.warning("rate limit", {
+        job_id: jobId,
+        event: "rate_limit",
+        rate_limit_type: event.rateLimitType,
+        resets_at: new Date(event.resetsAt * 1000).toISOString(),
+        status: event.status,
+      });
+    }
+  };
+}
 
 export async function runRunner(argv: string[]): Promise<void> {
   const { values } = parseArgs({
@@ -47,28 +74,9 @@ export async function runRunner(argv: string[]): Promise<void> {
     slots: Number(values.slots),
     engine: values.fake ? fakeEngine() : claudeCliEngine(),
     log,
-    // The agent's own stream, through the same logger. Two formats on one stdout
-    // would hand a collector mixed content, and on a server that is the only
-    // record of what the agent did.
-    onEvent: values.quiet
-      ? undefined
-      : (jobId, event) => {
-          if (event.t === "assistant") log.info(event.text, { job_id: jobId, event: "assistant" });
-          else if (event.t === "tool_use") {
-            log.info(`${event.name} ${event.summary ?? ""}`.trim(), {
-              job_id: jobId,
-              event: "tool_use",
-              tool: event.name,
-            });
-          } else if (event.t === "rate_limit") {
-            log.warning("rate limit", {
-              job_id: jobId,
-              event: "rate_limit",
-              rate_limit_type: event.rateLimitType,
-              resets_at: new Date(event.resetsAt * 1000).toISOString(),
-            });
-          }
-        },
+    // Two formats on one stdout would hand a collector mixed content, and on a
+    // server that is the only record of what the agent did.
+    onEvent: values.quiet ? undefined : transcriptLogger(log),
   }).catch((cause: Error) => {
     // A refused upgrade surfaces here. A Bun stack trace tells a human nothing
     // about the one thing that is usually wrong, which is the credential.

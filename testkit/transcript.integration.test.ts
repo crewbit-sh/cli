@@ -109,31 +109,49 @@ describe("what the engine said", () => {
 describe("a rate limit", () => {
   /** The epoch second the CLI actually emitted in the recorded P0 fixture. */
   const RESETS_AT = 1786168200;
-  const limited = [
-    `{"type":"rate_limit_event","rate_limit_info":{"status":"allowed","resetsAt":${RESETS_AT},"rateLimitType":"five_hour"}}`,
+  const stream = (status?: string) => [
+    `{"type":"rate_limit_event","rate_limit_info":{${
+      status ? `"status":"${status}",` : ""
+    }"resetsAt":${RESETS_AT},"rateLimitType":"five_hour"}}`,
     '{"is_error":false,"num_turns":1,"session_id":"s","subtype":"success","terminal_reason":"completed","result":"OK","type":"result"}',
   ];
 
-  test("is reported as something a person should see, with when it lifts", async () => {
-    const double = await ran("job-5", limited);
+  // #6: every `rate_limit` event used to reach the server as "the window is
+  // exhausted", so a warning the engine kept working through was scheduled
+  // around the same way a real block is. Only `rejected` is one.
+  test("a status of allowed is an event, but not something a person is told about", async () => {
+    const double = await ran("job-5", stream("allowed"));
+
+    expect(double.events("job-5").map((e) => e.t)).toContain("rate_limit");
+    expect(double.notifications()).toHaveLength(0);
+  });
+
+  test("allowed_warning is the same: the engine is still working", async () => {
+    const double = await ran("job-6", stream("allowed_warning"));
+
+    expect(double.notifications()).toHaveLength(0);
+  });
+
+  test("rejected is reported as something a person should see, with when it lifts", async () => {
+    const double = await ran("job-7", stream("rejected"));
 
     // The runner cannot reach a person, having no provider credential, so this
     // is the whole of its part: report the condition and let the server pick
     // the channel.
     const [notice] = double.notifications();
-    expect(notice).toMatchObject({ jobId: "job-5", code: "rate_limited", level: "warning" });
+    expect(notice).toMatchObject({ jobId: "job-7", code: "rate_limited", level: "warning" });
     // Seconds on the wire, an ISO instant for a human: the point of the notice
     // is that somebody can read when to come back.
     expect(notice?.resumeAt).toBe(new Date(RESETS_AT * 1000).toISOString());
     expect(notice?.message).toContain("five_hour");
+    expect(notice?.message).toContain("exhausted");
   });
 
-  test("is still an event in the transcript, and not only an escalation", async () => {
-    const double = await ran("job-6", limited);
+  test("an engine that names no status is reported as unknown, not exhausted", async () => {
+    const double = await ran("job-8", stream());
 
-    // Both, from the same event: the escalation is what a person sees, and the
-    // transcript is where it can be read next to what caused it.
-    expect(double.events("job-6").map((e) => e.t)).toContain("rate_limit");
-    expect(double.notifications()).toHaveLength(1);
+    const [notice] = double.notifications();
+    expect(notice?.message).toContain("unknown");
+    expect(notice?.message).not.toContain("exhausted");
   });
 });
