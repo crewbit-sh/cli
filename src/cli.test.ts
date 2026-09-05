@@ -8,12 +8,36 @@
 
 import { describe, expect, test } from "bun:test";
 import { spawn } from "node:child_process";
+import { mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 const CLI = new URL("cli.ts", import.meta.url).pathname;
 
+// #8: a machine that holds this project's own runner credential exports it as
+// CREWBIT_TOKEN, and spawn() inherits process.env by default, so every one of
+// these tests was really dialling wss://d.crewbit.sh and https://app.crewbit.sh
+// with it. Nothing here writes into CONFIG_DIR; it stays empty for the whole
+// file, standing in for any config a future version might read from HOME.
+// UNREACHABLE is a loopback port nothing listens on, so a connection to it
+// fails the same way, fast, whether or not this machine can reach the internet.
+const CONFIG_DIR = mkdtempSync(join(tmpdir(), "crewbit-cli-test-"));
+const UNREACHABLE = "ws://127.0.0.1:1";
+
+function cleanEnv(): NodeJS.ProcessEnv {
+  const env: NodeJS.ProcessEnv = { ...process.env, HOME: CONFIG_DIR, XDG_CONFIG_HOME: CONFIG_DIR };
+  for (const key of Object.keys(env)) {
+    if (key.startsWith("CREWBIT_")) delete env[key];
+  }
+  return env;
+}
+
 function run(...args: string[]): Promise<{ code: number | null; out: string; err: string }> {
   return new Promise((resolve) => {
-    const child = spawn("node", [CLI, ...args], { stdio: ["ignore", "pipe", "pipe"] });
+    const child = spawn("node", [CLI, ...args, "--server", UNREACHABLE], {
+      stdio: ["ignore", "pipe", "pipe"],
+      env: cleanEnv(),
+    });
     let out = "";
     let err = "";
     child.stdout.on("data", (chunk) => {
