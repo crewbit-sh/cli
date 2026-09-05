@@ -8,10 +8,11 @@
  * Shallow, because a plan needs the tree and not the history.
  */
 
-import { appendFile, mkdir, mkdtemp, rm, stat, writeFile } from "node:fs/promises";
+import { appendFile, mkdir, mkdtemp, readdir, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, resolve, sep } from "node:path";
 import type { JobAssignParams } from "@crewbit/protocol";
+import type { Logger } from "../log.ts";
 import { BASE_REF, diffSince, git, mergeBase, withToken } from "./git.ts";
 
 export type WorkspaceInput = {
@@ -41,13 +42,19 @@ export type WorkspaceInput = {
    * is: they describe the change rather than being part of it.
    */
   artifacts?: string[];
+  /** Where a checkout carrying something removed by `sanitizeClaudeConfig` is reported. */
+  log?: Logger;
+  jobId?: string;
 };
 
 export async function prepareWorkspace(input: WorkspaceInput): Promise<string> {
   const workspace = await mkdtemp(`${tmpdir()}${sep}crewbit-job-`);
 
   try {
-    if (input.repo) await clone(input.repo, workspace, input.continues ?? input.delivers ?? true);
+    if (input.repo) {
+      await clone(input.repo, workspace, input.continues ?? input.delivers ?? true);
+      await sanitizeClaudeConfig(workspace, input.log, input.jobId);
+    }
     // Context second, so a repository file is never replaced by one: a Stage
     // reading a source file must see the real one.
     await writeContext(workspace, input.context, Boolean(input.repo));
@@ -143,6 +150,59 @@ async function clone(
   // The runner keeps pushing because it names the destination on the command
   // line rather than through a configured remote.
   await git(["remote", "remove", "origin"], into);
+}
+
+/**
+ * What a checked-out repository may hand the engine, and what it may not.
+ *
+ * `.claude/rules/**` and `.claude/CLAUDE.md` are project instructions: markdown
+ * a Stage reads as context, the same category the server's own rules Spec
+ * writes into a target repository. Everything else `.claude/` can hold is a way
+ * to make the engine act the moment it starts, not just inform it: `settings.json`
+ * and `settings.local.json` carry `hooks`, which run a shell command on their
+ * own schedule (`PreToolUse`, `SessionStart`, ...) with no `--permission-mode` or
+ * `--allowed-tools` gate over them; `agents/`, `commands/` and `skills/` are
+ * each a way to extend what the engine can be made to invoke. A root
+ * `.mcp.json` is the same problem one level up: a project MCP server is a
+ * command the engine starts on its own.
+ *
+ * `--setting-sources project` on the CLI invocation cannot be narrowed to load
+ * the rules without loading the rest of `.claude/` too — both come from the
+ * same source — so the checkout is sanitised on disk instead, right after the
+ * clone and before anything reads it.
+ */
+const CLAUDE_KEEP = new Set(["rules", "CLAUDE.md"]);
+
+async function sanitizeClaudeConfig(
+  workspace: string,
+  log?: Logger,
+  jobId?: string,
+): Promise<void> {
+  const removed: string[] = [];
+
+  const claudeDir = resolve(workspace, ".claude");
+  const entries = await readdir(claudeDir, { withFileTypes: true }).catch(() => []);
+  for (const entry of entries) {
+    if (CLAUDE_KEEP.has(entry.name)) continue;
+    await rm(resolve(claudeDir, entry.name), { recursive: true, force: true });
+    removed.push(`.claude/${entry.name}`);
+  }
+
+  const mcpConfig = resolve(workspace, ".mcp.json");
+  if (await exists(mcpConfig)) {
+    await rm(mcpConfig, { force: true });
+    removed.push(".mcp.json");
+  }
+
+  // Only when there was something to say: the ordinary Job clones a repository
+  // with none of this, and a line on every one of them would bury the Job that
+  // actually carried something.
+  if (removed.length > 0) {
+    log?.warning("removed engine configuration the checkout carried", {
+      job_id: jobId,
+      removed,
+    });
+  }
 }
 
 /**

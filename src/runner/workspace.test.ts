@@ -4,6 +4,7 @@ import { cpSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { readdir, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { createLogger, type Logger } from "../log.ts";
 import { prepareWorkspace } from "./workspace.ts";
 
 const dirs: string[] = [];
@@ -530,5 +531,99 @@ describe("a stage that reads the work without delivering any", () => {
     // branch pinned two re-planned Specs to a two-hour-old snapshot.
     const files = await readdir(workspace);
     expect(files).not.toContain("stale.ts");
+  });
+});
+
+function reading(): { log: Logger; lines: Array<Record<string, unknown>> } {
+  const lines: Array<Record<string, unknown>> = [];
+  return { log: createLogger("test", (line) => lines.push(JSON.parse(line))), lines };
+}
+
+/** A repository that ships everything `.claude/` can hold, hostile and legitimate alike. */
+async function hostileOriginRepo(): Promise<{ url: string; branch: string }> {
+  const dir = scratch();
+
+  mkdirSync(join(dir, ".claude", "rules"), { recursive: true });
+  mkdirSync(join(dir, ".claude", "agents"), { recursive: true });
+  writeFileSync(join(dir, "README.md"), "# a repository\n");
+  writeFileSync(join(dir, "CLAUDE.md"), "# project instructions\n");
+  writeFileSync(
+    join(dir, ".mcp.json"),
+    JSON.stringify({ mcpServers: { evil: { command: "sh" } } }),
+  );
+  writeFileSync(
+    join(dir, ".claude", "settings.json"),
+    JSON.stringify({ hooks: { PreToolUse: [{ hooks: [{ type: "command", command: "id" }] }] } }),
+  );
+  writeFileSync(join(dir, ".claude", "settings.local.json"), JSON.stringify({ hooks: {} }));
+  writeFileSync(join(dir, ".claude", "agents", "reviewer.md"), "# a custom agent\n");
+  writeFileSync(join(dir, ".claude", "rules", "ready_for_code.md"), "# ready for code\n");
+  writeFileSync(join(dir, ".claude", "rules", "planning.md"), "# planning\n");
+  writeFileSync(join(dir, ".claude", "rules", "testing.md"), "# testing\n");
+
+  // `git add .` alone, not the same as `seed`'s: this machine's own global
+  // gitignore excludes `.claude/settings.local.json`, which a repository
+  // actually trying to carry one would simply force in.
+  await run("git", ["init", "-q", "-b", "main"], dir);
+  await run("git", ["config", "user.email", "test@example.test"], dir);
+  await run("git", ["config", "user.name", "test"], dir);
+  await run("git", ["add", "-f", "."], dir);
+  await run("git", ["commit", "-qm", "first"], dir);
+
+  return { url: dir, branch: "main" };
+}
+
+describe("what a checked-out repository may configure the engine with", () => {
+  test("keeps the rules and CLAUDE.md, and removes everything else .claude/ or .mcp.json can hold", async () => {
+    const origin = await hostileOriginRepo();
+    const { log, lines } = reading();
+
+    const workspace = await prepareWorkspace({
+      context: {},
+      repo: grant(origin),
+      log,
+      jobId: "job_1",
+    });
+    dirs.push(workspace);
+
+    expect(await readdir(join(workspace, ".claude"))).toEqual(["rules"]);
+    expect(await readdir(join(workspace, ".claude", "rules")).then((f) => f.sort())).toEqual([
+      "planning.md",
+      "ready_for_code.md",
+      "testing.md",
+    ]);
+    expect(await readFile(join(workspace, "CLAUDE.md"), "utf8")).toContain("project instructions");
+    expect(await readdir(workspace)).not.toContain(".mcp.json");
+
+    // What the engine would otherwise have started is on record, against the
+    // Job that carried it.
+    const warned = lines.find(
+      (line) => line.message === "removed engine configuration the checkout carried",
+    );
+    expect(warned).toBeTruthy();
+    expect(warned).toMatchObject({ job_id: "job_1" });
+    const removed = (warned as { removed: string[] }).removed;
+    expect(removed.slice().sort()).toEqual([
+      ".claude/agents",
+      ".claude/settings.json",
+      ".claude/settings.local.json",
+      ".mcp.json",
+    ]);
+  });
+
+  test("a repository carrying none of it is unchanged, and logs nothing", async () => {
+    const origin = await originRepo();
+    const { log, lines } = reading();
+
+    const workspace = await prepareWorkspace({
+      context: {},
+      repo: grant(origin),
+      log,
+      jobId: "job_2",
+    });
+    dirs.push(workspace);
+
+    expect(await readFile(join(workspace, "app.ts"), "utf8")).toContain("answer = 42");
+    expect(lines).toEqual([]);
   });
 });

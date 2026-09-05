@@ -701,6 +701,8 @@ export async function startRunner(options: RunnerOptions): Promise<RunnerHandle>
       workspace = await prepareWorkspace({
         context: job.context,
         repo: job.repo,
+        log,
+        jobId: job.jobId,
         artifacts: job.artifacts?.collect ?? [],
         delivers: delivers(job.stage),
         continues: continues(job.stage),
