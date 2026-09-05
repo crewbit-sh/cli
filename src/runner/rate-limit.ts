@@ -14,6 +14,8 @@
  * block for this function's purposes, the same as `rejected`.
  */
 
+import type { JobEvent } from "@crewbit/protocol";
+
 /** What this needs of a `rate_limit` engine event. */
 export type RateLimitFacts = {
   rateLimitType: string;
@@ -37,4 +39,65 @@ export function rateLimitMessage(event: RateLimitFacts): string {
   return event.status === "rejected"
     ? `the ${event.rateLimitType} window is exhausted (status: rejected)`
     : `the ${event.rateLimitType} window's status is unknown`;
+}
+
+/**
+ * Collapses a run of safe `rate_limit` events into one line, #11.
+ *
+ * The engine emits one on every call while a window is near its limit, and a
+ * long stage throttled for its whole run recorded hundreds of identical
+ * lines carrying no information beyond "still throttled". The first of a run
+ * reaches `push` as it arrives, so the transcript says promptly that the
+ * engine is throttled; the rest are only counted, and the count reaches
+ * `push` as one closing event, in the same shape, when a different event
+ * arrives or `flush` is called with nothing left to wait for. A `rejected`
+ * event is never coalesced: it is the one status a person has to see.
+ *
+ * `@crewbit/protocol`'s `JobEvent` has no field for a count, so it travels in
+ * `rateLimitType` itself: "five_hour" becomes "five_hour × 41", which is what
+ * the Run page already renders inside `rate limit (${rateLimitType})`.
+ */
+export function coalesceRateLimits(push: (event: JobEvent) => void): {
+  push(event: JobEvent): void;
+  flush(): void;
+} {
+  let run: { rateLimitType: string; resetsAt: number; status?: string; count: number } | undefined;
+
+  function flush(): void {
+    if (!run) return;
+    if (run.count > 1) {
+      push({
+        t: "rate_limit",
+        rateLimitType: `${run.rateLimitType} × ${run.count}`,
+        resetsAt: run.resetsAt,
+        status: run.status,
+      });
+    }
+    run = undefined;
+  }
+
+  return {
+    push(event) {
+      if (event.t !== "rate_limit" || !rateLimitIsSafe(event)) {
+        flush();
+        push(event);
+        return;
+      }
+      if (!run || event.rateLimitType !== run.rateLimitType) {
+        flush();
+        run = {
+          rateLimitType: event.rateLimitType,
+          resetsAt: event.resetsAt,
+          status: event.status,
+          count: 1,
+        };
+        push(event);
+        return;
+      }
+      run.resetsAt = event.resetsAt;
+      run.status = event.status;
+      run.count += 1;
+    },
+    flush,
+  };
 }

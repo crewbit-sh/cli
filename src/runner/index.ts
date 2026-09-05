@@ -41,7 +41,7 @@ import {
 } from "./git.ts";
 import { decide } from "./outcome.ts";
 import { preExistingFailures } from "./pre-existing.ts";
-import { rateLimitIsSafe, rateLimitMessage } from "./rate-limit.ts";
+import { coalesceRateLimits, rateLimitIsSafe, rateLimitMessage } from "./rate-limit.ts";
 import { retryable, stopReason } from "./reason.ts";
 import { runPrepare, runVerify } from "./verify.ts";
 import { waited } from "./wait.ts";
@@ -585,6 +585,12 @@ export async function startRunner(options: RunnerOptions): Promise<RunnerHandle>
     controller: AbortController,
     batcher: Batcher,
   ): Promise<EngineResult> {
+    // #11: the engine emits a `rate_limit` event on every call while a window
+    // is near its limit, and a long throttled stage recorded hundreds of
+    // identical transcript lines for it. One coalescer for the whole Job, not
+    // per attempt, so a retry right after a run of them still closes it
+    // rather than starting a second, silently shorter one.
+    const rateLimits = coalesceRateLimits((event) => batcher.push(event));
     for (let attempt = 1; ; attempt += 1) {
       const result = await engine.run({
         prompt: job.harness.prompt,
@@ -597,7 +603,7 @@ export async function startRunner(options: RunnerOptions): Promise<RunnerHandle>
         resumeSessionId: job.resumeSessionId,
         signal: controller.signal,
         onEvent: (event) => {
-          batcher.push(event);
+          rateLimits.push(event);
           options.onEvent?.(job.jobId, event);
           // The runner cannot reach a person, having no provider credential.
           // It reports the condition and the server chooses the channel - but
@@ -614,6 +620,9 @@ export async function startRunner(options: RunnerOptions): Promise<RunnerHandle>
           }
         },
       });
+      // A dangling run otherwise never closes: nothing else in this Job says
+      // "a different event arrived" once the engine itself has stopped.
+      rateLimits.flush();
 
       if (attempt >= MAX_ENGINE_ATTEMPTS || controller.signal.aborted || !retryable(result)) {
         return result;
