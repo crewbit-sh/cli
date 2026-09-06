@@ -279,9 +279,13 @@ export async function startRunner(options: RunnerOptions): Promise<RunnerHandle>
 
     const mine = peer;
     socket.addEventListener("message", (event) => mine.receive(String(event.data)));
-    socket.addEventListener("close", () => {
+    socket.addEventListener("close", (event) => {
       clearInterval(alive);
       mine.close("socket closed");
+      // #260 on the service closes an oversized frame with 1009 and a reason,
+      // and an operator watching only this process's own log would otherwise
+      // never learn why it reconnected.
+      log.warning("disconnected", { code: event.code, reason: event.reason });
       if (!stopped) scheduleReconnect();
     });
 

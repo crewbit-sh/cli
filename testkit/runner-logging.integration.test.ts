@@ -112,6 +112,34 @@ describe("the runner's own logs", () => {
     expect(failed.stage).toBe("plan");
     expect(failed["error.message"]).toBe("claude is not on PATH");
   });
+
+  /**
+   * cli#13: the server can close a connection with a reason - #260 on the
+   * service closes an oversized frame with 1009 and a message - and until
+   * now nothing on this side ever looked at it. An operator watching only
+   * this process's own log saw a plain reconnect, with no word of why.
+   */
+  test("says why the server closed the connection, before it reconnects", async () => {
+    const double = await startServerDouble();
+    stopAll.push(() => double.stop());
+    const seen = recordingLog();
+    const runner = await startRunner({
+      url: double.url,
+      engine: fakeEngine(),
+      reconnectMs: 10,
+      log: seen.log,
+    });
+    stopAll.push(() => runner.stop());
+    await double.helloReceived();
+
+    const disconnected = seen.line("disconnected");
+    double.closeRunnerWith(1009, "frame exceeds maxJobBytes");
+
+    expect(await disconnected).toMatchObject({
+      code: 1009,
+      reason: "frame exceeds maxJobBytes",
+    });
+  });
 });
 
 describe("a runner whose server went away", () => {

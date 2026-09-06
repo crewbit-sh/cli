@@ -54,6 +54,12 @@ export type ServerDouble = {
   resumeWith(jobId: string, point: { ackedSeq: number; stillMine: boolean }): void;
   /** Drops the current connection without stopping the double, so the runner reconnects. */
   disconnectRunner(): void;
+  /**
+   * Closes the current connection the way a server refusing a frame does —
+   * with a WebSocket close code and reason — rather than a bare network drop.
+   * `terminate()` behind `disconnectRunner` never carries either.
+   */
+  closeRunnerWith(code: number, reason: string): void;
   assign(params: JobAssignParams): Promise<JobAssignResult>;
   /**
    * Every `runner.ready` the runner announced, oldest first. The runner sends
@@ -277,6 +283,7 @@ export async function startServerDouble(options: ServerDoubleOptions = {}): Prom
       resumePoints.set(jobId, point);
     },
     disconnectRunner: () => currentSocket?.terminate(),
+    closeRunnerWith: (code, reason) => currentSocket?.close(code, reason),
     assign: (params) => connectedPeer().request("job.assign", params),
     aliveCount: () => beats,
     waitForAlive: (count) =>
