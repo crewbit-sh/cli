@@ -63,33 +63,52 @@ describe("what the engine said", () => {
     expect(events.find((e) => e.t === "assistant")).toMatchObject({ text: "OK" });
   });
 
-  test("keeps the events the server does not understand, whole", async () => {
+  // #16: this used to be "keeps the events the server does not understand,
+  // whole" - a system message travelled as `other, raw` rather than being
+  // dropped. Measured at 920 of 1,810 events over seven days, 3.8 MB of a
+  // 3.95 MB log: what the server could not name is not kept any more.
+  test("drops a system message rather than sending it as other", async () => {
     const double = await ran("job-2", [
       '{"type":"system","subtype":"init","session_id":"s"}',
       '{"type":"assistant","message":{"content":[{"type":"text","text":"OK"}]}}',
       '{"is_error":false,"num_turns":1,"session_id":"s","subtype":"success","terminal_reason":"completed","result":"OK","type":"result"}',
     ]);
 
-    // A system message has no place in the protocol's own kinds, so it travels
-    // as `other` rather than being dropped on the way out.
-    const other = double.events("job-2").find((e) => e.t === "other");
-    expect(JSON.stringify(other)).toContain("init");
+    const events = double.events("job-2");
+    expect(events.some((e) => e.t === "other")).toBe(false);
+    expect(events.map((e) => e.t)).toEqual(["assistant"]);
+  });
+
+  // #16: a tool result used to reach the server as `other, raw` too - the
+  // target repository's own contents leaving the machine that holds them.
+  test("a tool result reaches the server as tool_result, never as other", async () => {
+    const double = await ran("job-10", [
+      '{"type":"assistant","message":{"content":[{"type":"tool_use","id":"t1","name":"Read","input":{"file_path":"probe.txt"}}]}}',
+      '{"type":"user","message":{"role":"user","content":[{"tool_use_id":"t1","type":"tool_result","content":"hello from the probe"}]}}',
+      '{"is_error":false,"num_turns":1,"session_id":"s","subtype":"success","terminal_reason":"completed","result":"done","type":"result"}',
+    ]);
+
+    const events = double.events("job-10");
+    expect(events.some((e) => e.t === "other")).toBe(false);
+    expect(events.find((e) => e.t === "tool_result")).toMatchObject({
+      text: "hello from the probe",
+      isError: false,
+    });
   });
 
   test("arrives batched, not one frame per message", async () => {
     const double = await ran("job-3", [
-      '{"type":"system","subtype":"init","session_id":"s"}',
       '{"type":"assistant","message":{"content":[{"type":"text","text":"one"}]}}',
       '{"type":"assistant","message":{"content":[{"type":"text","text":"two"}]}}',
       '{"type":"assistant","message":{"content":[{"type":"text","text":"three"}]}}',
       '{"is_error":false,"num_turns":1,"session_id":"s","subtype":"success","terminal_reason":"completed","result":"done","type":"result"}',
     ]);
 
-    // Four events, one frame: the batch is what went over the wire, and a
+    // Three events, one frame: the batch is what went over the wire, and a
     // chatty stage sending one frame each is the waste this exists to avoid.
     const frames = double.batches("job-3");
     expect(frames).toHaveLength(1);
-    expect(frames[0]?.events).toHaveLength(4);
+    expect(frames[0]?.events).toHaveLength(3);
     expect(frames[0]?.seq).toBe(1);
   });
 

@@ -15,27 +15,24 @@ async function run(lines: string[]) {
 }
 
 describe("parseLine", () => {
-  test("an unknown message type becomes an opaque event instead of throwing", () => {
+  test("an unknown message type is ignored rather than kept as an opaque event", () => {
     const parsed = parseLine(JSON.stringify({ type: "future_thing", payload: 1 }));
 
-    expect(parsed).toEqual({
-      kind: "event",
-      event: { t: "other", raw: { type: "future_thing", payload: 1 } },
-    });
+    expect(parsed).toEqual({ kind: "ignored" });
   });
 
-  test("a line that is not JSON becomes an opaque event instead of throwing", () => {
+  test("a line that is not JSON is ignored rather than kept as an opaque event", () => {
     const parsed = parseLine("{ half a frame");
 
-    expect(parsed.kind).toBe("event");
+    expect(parsed.kind).toBe("ignored");
   });
 
   test("a blank line is ignored", () => {
     expect(parseLine("   ").kind).toBe("ignored");
   });
 
-  test("a thinking-tokens ping is ignored rather than kept as an opaque event", () => {
-    // Measured on a real Run's last 60 events: 24 of 28 `other` lines were
+  test("a thinking-tokens ping is ignored", () => {
+    // Measured on a real Run's last 60 events: 24 of 28 opaque lines were
     // exactly this, and it carries nothing a transcript could show. The server
     // keeps a fixed window of events per Run, so every one of these was a real
     // line of the transcript it pushed out to make room.
@@ -44,10 +41,15 @@ describe("parseLine", () => {
     expect(parsed.kind).toBe("ignored");
   });
 
-  test("a system message that is not the ping still becomes an opaque event", () => {
+  // #16: a system line of an unknown subtype produces no event, and nothing
+  // produced by the mapper carries raw - measured at 920 of 1,810 events over
+  // seven days, 3.8 MB of a 3.95 MB log, most of it the target repository's
+  // own contents.
+  test("a system message that is not the ping produces no event, and nothing produced by the mapper carries raw", () => {
     const parsed = parseLine(JSON.stringify({ type: "system", subtype: "init" }));
 
-    expect(parsed.kind).toBe("event");
+    expect(parsed).toEqual({ kind: "ignored" });
+    expect(JSON.stringify(parsed)).not.toContain("raw");
   });
 
   test("a long summary keeps both ends, because the filename is at the far one", () => {
@@ -80,6 +82,110 @@ describe("parseLine", () => {
       kind: "event",
       event: { t: "tool_use", name: "Edit", summary: "src/auth.ts" },
     });
+  });
+});
+
+/**
+ * #16: what used to leave as `{ t: "other", raw: message }` - the file the
+ * engine read, the test output, the diff - is 96% of what a transcript costs
+ * to send, store and read, and it is the target repository's own contents.
+ * Only the first 200 characters travel now, and `isError` is what diagnosed
+ * crewbit-v2#271.
+ */
+describe("a user line carrying a tool result", () => {
+  const userLine = (content: unknown, isError?: boolean) =>
+    JSON.stringify({
+      type: "user",
+      message: {
+        role: "user",
+        content: [
+          {
+            tool_use_id: "toolu_1",
+            type: "tool_result",
+            content,
+            ...(isError === undefined ? {} : { is_error: isError }),
+          },
+        ],
+      },
+    });
+
+  test("produces tool_result with the first 200 characters and isError false", () => {
+    const parsed = parseLine(userLine("1\thello from the probe\n2\t"));
+
+    expect(parsed).toEqual({
+      kind: "event",
+      event: { t: "tool_result", text: "1\thello from the probe\n2\t", isError: false },
+    });
+  });
+
+  test("is_error: true sets isError", () => {
+    const parsed = parseLine(userLine("boom: no such file", true));
+
+    expect(parsed).toEqual({
+      kind: "event",
+      event: { t: "tool_result", text: "boom: no such file", isError: true },
+    });
+  });
+
+  test("cuts the text at 200 characters", () => {
+    const parsed = parseLine(userLine("x".repeat(500)));
+    const text =
+      parsed.kind === "event" && parsed.event.t === "tool_result" ? parsed.event.text : "";
+
+    expect(text).toBe("x".repeat(200));
+  });
+
+  test("reads the array-of-blocks content form too, not only a plain string", () => {
+    const parsed = parseLine(userLine([{ type: "text", text: "from an array block" }]));
+
+    expect(parsed).toEqual({
+      kind: "event",
+      event: { t: "tool_result", text: "from an array block", isError: false },
+    });
+  });
+
+  test("a user line with no tool_result block produces no event", () => {
+    const parsed = parseLine(
+      JSON.stringify({ type: "user", message: { role: "user", content: [] } }),
+    );
+
+    expect(parsed).toEqual({ kind: "ignored" });
+  });
+});
+
+describe("an assistant line with only a thinking block", () => {
+  const thinkingLine = (thinking: string) =>
+    JSON.stringify({ type: "assistant", message: { content: [{ type: "thinking", thinking }] } });
+
+  test("produces thinking with the first 200 characters", () => {
+    const parsed = parseLine(thinkingLine("the test needs a fixed clock"));
+
+    expect(parsed).toEqual({
+      kind: "event",
+      event: { t: "thinking", text: "the test needs a fixed clock" },
+    });
+  });
+
+  test("cuts the text at 200 characters", () => {
+    const parsed = parseLine(thinkingLine("y".repeat(500)));
+
+    expect(parsed).toEqual({ kind: "event", event: { t: "thinking", text: "y".repeat(200) } });
+  });
+
+  test("is not surfaced when text is also present in the same line", () => {
+    const parsed = parseLine(
+      JSON.stringify({
+        type: "assistant",
+        message: {
+          content: [
+            { type: "thinking", thinking: "reasoning about it" },
+            { type: "text", text: "the answer" },
+          ],
+        },
+      }),
+    );
+
+    expect(parsed).toEqual({ kind: "event", event: { t: "assistant", text: "the answer" } });
   });
 });
 
@@ -131,10 +237,15 @@ describe("consumeStream, on a recorded successful run", () => {
     });
   });
 
-  test("passes system messages through as opaque events", async () => {
+  // #16: the three system lines this fixture carries (two hooks and init) used
+  // to survive as opaque events; now none of them does.
+  test("drops every system message rather than keeping it as an opaque event", async () => {
     const { events } = await run(fixture("stream-ok.jsonl"));
 
-    expect(events.filter((e) => e.t === "other").length).toBeGreaterThan(0);
+    expect(events).toEqual([
+      { t: "assistant", text: "OK" },
+      { t: "rate_limit", rateLimitType: "five_hour", resetsAt: 1786168200, status: "allowed" },
+    ]);
   });
 
   test("yields a result carrying what the server bills and resumes on", async () => {
@@ -150,24 +261,17 @@ describe("consumeStream, on a recorded successful run", () => {
       terminalReason: "completed",
     });
   });
-
-  test("does not emit the result message as an event", async () => {
-    const { events } = await run(fixture("stream-ok.jsonl"));
-
-    expect(
-      events.some((e) => e.t === "other" && (e.raw as { type?: string }).type === "result"),
-    ).toBe(false);
-  });
 });
 
 describe("consumeStream, on a recorded run that used a tool", () => {
-  test("reads as a transcript: what it said, what it ran, what it concluded", async () => {
+  test("reads as a transcript: what it said, what it ran, what it found, what it concluded", async () => {
     const { events, result } = await run(fixture("stream-tools.jsonl"));
-    const spoken = events.filter((e) => e.t === "assistant" || e.t === "tool_use");
+    const spoken = events.filter((e) => e.t !== "rate_limit");
 
     expect(spoken).toEqual([
       { t: "assistant", text: "I'll read the file." },
       { t: "tool_use", name: "Read", summary: expect.stringContaining("probe.txt") },
+      { t: "tool_result", text: "1\thello from the probe\n2\t", isError: false },
       { t: "assistant", text: "It says: `hello from the probe`" },
     ]);
     expect(result?.turns).toBe(2);

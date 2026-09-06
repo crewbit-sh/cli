@@ -5,7 +5,7 @@
     "": {
       "name": "@crewbit/cli",
       "dependencies": {
-        "@crewbit/protocol": "^1.0.0",
+        "@crewbit/protocol": "^1.1.0",
       },
       "devDependencies": {
         "@biomejs/biome": "^2.3.4",
@@ -36,7 +36,7 @@
 
     "@biomejs/cli-win32-x64": ["@biomejs/cli-win32-x64@2.5.11", "", { "os": "win32", "cpu": "x64" }, "sha512-QSQr/KjOgXA7OzXJUWS+oguKyAZ3Q0l/lnlDGbu397eKo83atuWUjBPJrsqbKNF6CARGw8XXJLGzpHC8Ryhd4Q=="],
 
-    "@crewbit/protocol": ["@crewbit/protocol@1.0.0", "", {}, "sha512-YLVn7zzE4aE4373BbrF1Vl5I2Wu+2VacZW+vYssH60vlubCEuVrLE7HmZteuaVRGy9+KFu0YRqVYeLC+QAlssw=="],
+    "@crewbit/protocol": ["@crewbit/protocol@1.1.0", "", {}, "sha512-QGMHFPsyuFKz0mWyUet3mzoDlcyWn6CAYEFDHRbKuFvwhJXnJeivSdb1ICTew+B5X6Uzu7AfldZNeiBiJKE5YA=="],
 
     "@types/bun": ["@types/bun@1.4.0", "", { "dependencies": { "bun-types": "1.4.0" } }, "sha512-K+lZULY23vRgK/CfTjFIV+tyifaNdSMlPh9j+6mQ/cLfpOznLyAuzgV/JQysyECpkBQLVMSyvjlr2fBUSA9wFQ=="],
 

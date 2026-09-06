@@ -2,9 +2,18 @@
  * Parser for the `--output-format stream-json` line protocol.
  *
  * This is not a stable contract, so it is parsed defensively: anything the
- * parser does not recognise becomes an opaque event and the stream keeps going.
- * A shape change upstream should cost fidelity in the transcript, never a
- * crashed Job. The recorded ground truth lives in ../../fixtures.
+ * parser does not recognise is dropped and the stream keeps going. A shape
+ * change upstream should cost fidelity in the transcript, never a crashed Job.
+ * The recorded ground truth lives in ../../fixtures.
+ *
+ * #16: nothing raw leaves this parser any more. A `user` line's tool result
+ * and an assistant line's thinking-only block used to fall through to
+ * `{ t: "other", raw: message }` - the target repository's own contents,
+ * measured at 96% of what a transcript costs to send, store and read - and
+ * they carry only their own first 200 characters now, as `tool_result` and
+ * `thinking`. Everything else that used to be `other` is dropped rather than
+ * kept: an event the server cannot name is not an event. `other` stays on the
+ * wire, deprecated, for a runner older than this release.
  */
 
 import type { EngineEvent, EngineResult } from "./types.ts";
@@ -19,7 +28,19 @@ type ContentBlock = {
   text?: string;
   name?: string;
   input?: Record<string, unknown>;
+  /** Only on a `thinking` block. */
+  thinking?: string;
 };
+
+/** A `user` line's own content block: the tool's answer, and whether it failed. */
+type ToolResultBlock = {
+  type?: string;
+  content?: unknown;
+  is_error?: boolean;
+};
+
+/** How much of a tool result or a thinking block travels. The rest stays on the runner's machine. */
+const EVENT_TEXT_MAX = 200;
 
 export function parseLine(line: string): ParsedLine {
   if (!line.trim()) return { kind: "ignored" };
@@ -28,7 +49,7 @@ export function parseLine(line: string): ParsedLine {
   try {
     message = JSON.parse(line) as Record<string, unknown>;
   } catch {
-    return { kind: "event", event: { t: "other", raw: line } };
+    return { kind: "ignored" };
   }
 
   // The one line item worth naming among everything a stream can carry that
@@ -36,20 +57,28 @@ export function parseLine(line: string): ParsedLine {
   // carries content. Measured on a real Run's last 60 events, 24 of 28
   // opaque lines were exactly this, in a server that keeps a fixed window of
   // events per Run — each one was a real transcript line pushed out to make
-  // room for a ping. Everything else still arrives as `other`.
+  // room for a ping.
   if (message.type === "system" && message.subtype === "thinking_tokens") {
     return { kind: "ignored" };
   }
 
   switch (message.type) {
-    case "assistant":
-      return { kind: "event", event: assistantEvent(message) };
-    case "rate_limit_event":
-      return { kind: "event", event: rateLimitEvent(message) };
+    case "assistant": {
+      const event = assistantEvent(message);
+      return event ? { kind: "event", event } : { kind: "ignored" };
+    }
+    case "user": {
+      const event = toolResultEvent(message);
+      return event ? { kind: "event", event } : { kind: "ignored" };
+    }
+    case "rate_limit_event": {
+      const event = rateLimitEvent(message);
+      return event ? { kind: "event", event } : { kind: "ignored" };
+    }
     case "result":
       return { kind: "result", result: toResult(message) };
     default:
-      return { kind: "event", event: { t: "other", raw: message } };
+      return { kind: "ignored" };
   }
 }
 
@@ -86,11 +115,14 @@ export function failedResult(text: string, terminalReason: string): EngineResult
 /**
  * Measured: the CLI sends one content block per assistant message, so text and
  * tool calls arrive separately and taking the first mapped block loses nothing.
- * If that ever changes, the extra blocks are dropped rather than mangled, which
- * costs transcript fidelity and nothing else.
+ * A thinking block is the fallback: #16 surfaces it only when the message
+ * carried nothing else, which "one block per message" makes the common case
+ * anyway. Undefined when none of the three shapes matched - dropped rather
+ * than kept, the same as everything else this parser does not recognise.
  */
-function assistantEvent(message: Record<string, unknown>): EngineEvent {
+function assistantEvent(message: Record<string, unknown>): EngineEvent | undefined {
   const inner = message.message as { content?: ContentBlock[] } | undefined;
+  let thinking: string | undefined;
   for (const block of inner?.content ?? []) {
     if (block.type === "text" && typeof block.text === "string") {
       return { t: "assistant", text: block.text };
@@ -101,11 +133,42 @@ function assistantEvent(message: Record<string, unknown>): EngineEvent {
         ? { t: "tool_use", name: block.name, summary }
         : { t: "tool_use", name: block.name };
     }
+    if (thinking === undefined && block.type === "thinking" && typeof block.thinking === "string") {
+      thinking = block.thinking;
+    }
   }
-  return { t: "other", raw: message };
+  return thinking === undefined ? undefined : { t: "thinking", text: firstChars(thinking) };
 }
 
-function rateLimitEvent(message: Record<string, unknown>): EngineEvent {
+/**
+ * A `user` line's own tool result, #16. The engine's `--print` mode has no
+ * other kind of `user` line - there is nobody typing one back - so this is
+ * the whole of what this shape means. `content` is either the tool's own
+ * string, or the API's array-of-blocks form; either way only the first 200
+ * characters travel, and never on their own machine's paths past that.
+ */
+function toolResultEvent(message: Record<string, unknown>): EngineEvent | undefined {
+  const inner = message.message as { content?: ToolResultBlock[] } | undefined;
+  for (const block of inner?.content ?? []) {
+    if (block.type !== "tool_result") continue;
+    const text = toolResultText(block.content);
+    if (text === undefined) continue;
+    return { t: "tool_result", text: firstChars(text), isError: block.is_error === true };
+  }
+  return undefined;
+}
+
+/** A tool result's own content: a string, or the API's array-of-blocks form. */
+function toolResultText(content: unknown): string | undefined {
+  if (typeof content === "string") return content;
+  if (!Array.isArray(content)) return undefined;
+  const found = content.find(
+    (block) => block && typeof block === "object" && (block as ContentBlock).type === "text",
+  ) as ContentBlock | undefined;
+  return typeof found?.text === "string" ? found.text : undefined;
+}
+
+function rateLimitEvent(message: Record<string, unknown>): EngineEvent | undefined {
   const info = message.rate_limit_info as
     | { rateLimitType?: unknown; resetsAt?: unknown; status?: unknown }
     | undefined;
@@ -121,7 +184,12 @@ function rateLimitEvent(message: Record<string, unknown>): EngineEvent {
       ...(typeof info.status === "string" ? { status: info.status } : {}),
     };
   }
-  return { t: "other", raw: message };
+  return undefined;
+}
+
+/** How much of a tool result or a thinking block travels; the rest never leaves the runner. */
+function firstChars(text: string): string {
+  return text.slice(0, EVENT_TEXT_MAX);
 }
 
 /** The final message is flat, not nested under `message`. */
