@@ -29,6 +29,16 @@ describe("buildArgs", () => {
     expect(args).not.toContain("--max-budget-usd");
   });
 
+  // #15: the developer account's claude.ai connectors and MCP servers are
+  // fetched from the login, not from a settings file, so no flag scopes them
+  // away by naming a source - the config just has to carry none.
+  test("always refuses any MCP config, so a Job never sees the developer's connectors", () => {
+    const args = buildArgs(base).join(" ");
+
+    expect(args).toContain("--strict-mcp-config");
+    expect(args).not.toContain("--mcp-config");
+  });
+
   test("passes through what the harness did ask for", () => {
     const args = buildArgs({
       ...base,
@@ -55,10 +65,22 @@ describe("buildEnv", () => {
       VSCODE_INJECTION: "1",
     });
 
-    expect(env).toEqual({ PATH: "/usr/bin" });
+    expect(env).toEqual({ PATH: "/usr/bin", ENABLE_CLAUDEAI_MCP_SERVERS: "false" });
   });
 
   test("drops undefined values rather than passing them as the string 'undefined'", () => {
-    expect(buildEnv({ PATH: "/usr/bin", EMPTY: undefined })).toEqual({ PATH: "/usr/bin" });
+    expect(buildEnv({ PATH: "/usr/bin", EMPTY: undefined })).toEqual({
+      PATH: "/usr/bin",
+      ENABLE_CLAUDEAI_MCP_SERVERS: "false",
+    });
+  });
+
+  // #15: the flag alone leaves connectors unaddressed - the docs name each for
+  // a different source - so this has to hold regardless of what the runner's
+  // own process was started with.
+  test("forces ENABLE_CLAUDEAI_MCP_SERVERS=false even when the runner's own env sets it true", () => {
+    const env = buildEnv({ PATH: "/usr/bin", ENABLE_CLAUDEAI_MCP_SERVERS: "true" });
+
+    expect(env.ENABLE_CLAUDEAI_MCP_SERVERS).toBe("false");
   });
 });

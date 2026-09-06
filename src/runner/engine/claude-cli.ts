@@ -36,6 +36,11 @@ export function buildArgs(run: EngineRun): string[] {
     // skills are not part of it, and loading them costs cache-creation tokens.
     "--setting-sources",
     "project",
+    // #15: no `--mcp-config` to name, so the developer account's claude.ai
+    // connectors and the user-scoped servers of `~/.claude.json` are refused
+    // rather than merely unnamed. `--setting-sources project` does not cover
+    // them - connectors are fetched from the subscription login, not a file.
+    "--strict-mcp-config",
   ];
   if (run.model) args.push("--model", run.model);
   if (run.allowedTools?.length) args.push("--allowed-tools", run.allowedTools.join(","));
@@ -62,6 +67,11 @@ export function buildEnv(source: NodeJS.ProcessEnv): Record<string, string> {
     if (blocked.has(key) || key.startsWith("CLAUDE_CODE_")) continue;
     env[key] = value;
   }
+  // #15: forced last, so nothing the runner's own process was started with
+  // can turn the developer account's connectors back on. `--strict-mcp-config`
+  // is silent on connectors specifically - the docs name each for a different
+  // source - so both apply rather than one standing in for the other.
+  env.ENABLE_CLAUDEAI_MCP_SERVERS = "false";
   return env;
 }
 
