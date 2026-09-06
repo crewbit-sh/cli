@@ -18,6 +18,12 @@ export function claudeCliEngine(options: ClaudeCliOptions = {}): Engine {
   };
 }
 
+/**
+ * #14: never `--resume`. The workspace is always new (`mkdtemp`), so a resumed
+ * conversation pointed at paths already deleted, and it carried every turn of
+ * every earlier attempt with it - one session read 61 workspaces in a night.
+ * A Job always starts a clean session now.
+ */
 export function buildArgs(run: EngineRun): string[] {
   const args = [
     "--print",
@@ -34,7 +40,6 @@ export function buildArgs(run: EngineRun): string[] {
   if (run.model) args.push("--model", run.model);
   if (run.allowedTools?.length) args.push("--allowed-tools", run.allowedTools.join(","));
   if (run.permissionMode) args.push("--permission-mode", run.permissionMode);
-  if (run.resumeSessionId) args.push("--resume", run.resumeSessionId);
   if (run.maxBudgetUsd) args.push("--max-budget-usd", String(run.maxBudgetUsd));
   return args;
 }

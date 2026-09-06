@@ -258,7 +258,6 @@ export async function startRunner(options: RunnerOptions): Promise<RunnerHandle>
             // A Stage told to explore a codebase and handed no checkout runs
             // against an empty directory, which is invisible without this.
             checkout: Boolean(job.repo),
-            resuming: Boolean(job.resumeSessionId),
           });
           void execute(job);
           return { accepted: true };
@@ -579,9 +578,9 @@ export async function startRunner(options: RunnerOptions): Promise<RunnerHandle>
    * `deliver` and the outcome decision all run once against the last result, so
    * a Job that exhausts its attempts reports exactly what it reports today.
    *
-   * Each attempt is handed the Job's own `resumeSessionId` rather than the
-   * failed attempt's. `retryable` only says yes to a run that produced no turns
-   * and spent nothing, so there is no session there worth resuming.
+   * #14: every attempt starts a clean session. `job.resumeSessionId` is never
+   * read - the workspace is always new, so a resumed conversation pointed at
+   * paths already deleted, and it carried every turn of every earlier attempt.
    */
   async function runEngine(
     job: JobAssignParams,
@@ -604,7 +603,6 @@ export async function startRunner(options: RunnerOptions): Promise<RunnerHandle>
         permissionMode: job.harness.permissionMode,
         model: job.harness.model,
         maxBudgetUsd: job.harness.maxBudgetUsd,
-        resumeSessionId: job.resumeSessionId,
         signal: controller.signal,
         onEvent: (event) => {
           rateLimits.push(event);

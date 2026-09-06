@@ -43,7 +43,6 @@ export type EngineRun = {
   allowedTools?: string[];
   permissionMode?: string;
   model?: string;
-  resumeSessionId?: string;
   /** Spend ceiling for the run. Hitting it is a `partial` outcome, not a failure. */
   maxBudgetUsd?: number;
   /**

@@ -35,14 +35,12 @@ describe("buildArgs", () => {
       model: "opus",
       allowedTools: ["Read", "Edit"],
       permissionMode: "acceptEdits",
-      resumeSessionId: "a7ea0a98",
       maxBudgetUsd: 10,
     }).join(" ");
 
     expect(args).toContain("--model opus");
     expect(args).toContain("--allowed-tools Read,Edit");
     expect(args).toContain("--permission-mode acceptEdits");
-    expect(args).toContain("--resume a7ea0a98");
     expect(args).toContain("--max-budget-usd 10");
   });
 });

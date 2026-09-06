@@ -73,7 +73,6 @@ describe("the runner's own logs", () => {
     const [accepted] = said(seen, "job accepted");
     expect(accepted?.stage).toBe("plan");
     expect(accepted?.max_turns).toBe(1);
-    expect(accepted?.resuming).toBe(false);
   });
 
   test("reports whether the workspace got a repository or an empty directory", async () => {
