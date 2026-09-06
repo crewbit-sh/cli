@@ -6,6 +6,13 @@ Upgrading is replacing the binary and starting it again. Stop the old one once
 and it finishes what it is holding before it exits, so an upgrade costs you
 nothing that was in flight. Stop it a second time and it exits straight away.
 
+## 0.8.5
+
+### Fixed
+
+- a job no longer resumes a stale session from a deleted workspace
+- the runner now says why the server closed its connection
+
 ## 0.8.4
 
 ### Fixed
