@@ -306,8 +306,11 @@ async function sanitizeClaudeConfig(
  * compute: `.git/shallow` holds both tips and `merge-base` answers with nothing.
  * Two hundred commits of the base covers a Run that stayed open for weeks, and
  * a branch older than that is too stale to continue, which is worth being told
- * rather than papering over. The cost is history for those commits on every fix
- * round, which is the price of a diff that is true.
+ * rather than papering over. The cost is history for those commits on every
+ * round that found a branch on the remote, whether or not it continues it: one
+ * fetch against an 80-turn round, for a diff that is true and a branch's work
+ * that is not thrown away. A first round, with nothing on the remote to fetch,
+ * pays none of it.
  */
 const BASE_DEPTH = 200;
 
