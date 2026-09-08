@@ -74,6 +74,26 @@ async function originRepo(extra: Record<string, string> = {}): Promise<{
   return { url: dir, branch: "main" };
 }
 
+/** Who the runner commits as, and the only identity these branches carry. */
+const RUNNER = "crewbit@users.noreply.github.com";
+
+/**
+ * A commit made the way the runner makes one.
+ *
+ * A branch a Stage continues was written by the runner and by nothing else, so a
+ * fixture standing for one has to be committed under that identity. `seed`'s
+ * `test@example.test` is somebody else, and a branch whose tip is somebody
+ * else's is a different case entirely.
+ */
+async function commitAsRunner(dir: string, message: string): Promise<void> {
+  await run("git", ["add", "."], dir);
+  await run(
+    "git",
+    ["-c", `user.email=${RUNNER}`, "-c", "user.name=crewbit", "commit", "-qm", message],
+    dir,
+  );
+}
+
 function run(command: string, args: string[], cwd: string): Promise<number> {
   return new Promise((resolve) => {
     const child = spawn(command, args, { cwd, stdio: "ignore" });
@@ -400,8 +420,7 @@ describe("a base branch that moved after the work branch was cut", () => {
     const origin = await originRepo();
     await run("git", ["checkout", "-q", "-b", "crewbit/spec-1"], origin.url);
     writeFileSync(join(origin.url, "mine.ts"), "export const mine = 1;\n");
-    await run("git", ["add", "."], origin.url);
-    await run("git", ["commit", "-qm", "the change"], origin.url);
+    await commitAsRunner(origin.url, "the change");
 
     await run("git", ["checkout", "-q", "main"], origin.url);
     for (const n of [1, 2, 3]) {
@@ -456,6 +475,27 @@ describe("a base branch that moved after the work branch was cut", () => {
     expect(await commitsSince(workspace)).toHaveLength(1);
   });
 
+  test("and the branch's own work is in the tree, which is what continuing it is for", async () => {
+    const origin = await diverged();
+
+    const workspace = await prepareWorkspace({
+      context: {},
+      delivers: true,
+      repo: {
+        url: origin.url,
+        baseBranch: "main",
+        branch: "crewbit/spec-1",
+        token: "",
+        tokenExpiresAt: "",
+      },
+    });
+    dirs.push(workspace);
+
+    // A branch carrying commits is continued as it always was: a fix round picks
+    // up where the last one stopped rather than writing it again.
+    expect(await readdir(workspace)).toContain("mine.ts");
+  });
+
   test("a first round, where the branch does not exist yet, is unchanged", async () => {
     const origin = await originRepo();
 
@@ -482,8 +522,7 @@ describe("a stage that reads the work without delivering any", () => {
     const origin = await originRepo();
     await run("git", ["checkout", "-q", "-b", "crewbit/spec-1"], origin.url);
     writeFileSync(join(origin.url, "mine.ts"), "export const mine = 1;\n");
-    await run("git", ["add", "."], origin.url);
-    await run("git", ["commit", "-qm", "the change"], origin.url);
+    await commitAsRunner(origin.url, "the change");
     await run("git", ["checkout", "-q", "main"], origin.url);
 
     const workspace = await prepareWorkspace({
@@ -510,8 +549,7 @@ describe("a stage that reads the work without delivering any", () => {
     const origin = await originRepo();
     await run("git", ["checkout", "-q", "-b", "crewbit/spec-1"], origin.url);
     writeFileSync(join(origin.url, "stale.ts"), "export const stale = 1;\n");
-    await run("git", ["add", "."], origin.url);
-    await run("git", ["commit", "-qm", "an earlier round"], origin.url);
+    await commitAsRunner(origin.url, "an earlier round");
     await run("git", ["checkout", "-q", "main"], origin.url);
 
     const workspace = await prepareWorkspace({
@@ -531,6 +569,130 @@ describe("a stage that reads the work without delivering any", () => {
     // branch pinned two re-planned Specs to a two-hour-old snapshot.
     const files = await readdir(workspace);
     expect(files).not.toContain("stale.ts");
+  });
+});
+
+describe("a branch that carries no commits of its own", () => {
+  /**
+   * The branch a first round pushed before the engine wrote anything, with the
+   * base moving on afterwards. It exists on the remote and points at an old base
+   * commit, so continuing it buys the fetch's guarantee and pays a tree as old as
+   * the branch.
+   */
+  async function pointerOnly(): Promise<{ url: string; branch: string; at: string }> {
+    const origin = await originRepo();
+    // A commit on the base before the branch is cut, so the branch's tip has
+    // history behind it. Cut from the root commit there is nothing to deepen,
+    // and a clone that paid the deepen would be indistinguishable from one that
+    // never did.
+    writeFileSync(join(origin.url, "before.ts"), "export const before = 1;\n");
+    await run("git", ["add", "."], origin.url);
+    await run("git", ["commit", "-qm", "before the branch"], origin.url);
+
+    const at = await gitOut(["rev-parse", "HEAD"], origin.url);
+    await run("git", ["branch", "crewbit/spec-1"], origin.url);
+
+    for (const n of [1, 2]) {
+      writeFileSync(join(origin.url, `later${n}.ts`), `export const later = ${n};\n`);
+      await run("git", ["add", "."], origin.url);
+      await run("git", ["commit", "-qm", `later ${n}`], origin.url);
+    }
+    return { ...origin, at };
+  }
+
+  test("is not continued: the Stage starts from the freshly cloned base", async () => {
+    const origin = await pointerOnly();
+    const base = await gitOut(["rev-parse", "HEAD"], origin.url);
+
+    const workspace = await prepareWorkspace({
+      context: {},
+      continues: true,
+      repo: grant(origin),
+    });
+    dirs.push(workspace);
+
+    // Continuing this branch checks out whatever the base was on the day it was
+    // created, and the Stage then works from that tree every time it is
+    // dispatched.
+    expect(await gitOut(["rev-parse", "HEAD"], workspace)).toBe(base);
+    expect(await gitOut(["rev-parse", "HEAD"], workspace)).not.toBe(origin.at);
+    expect(await readdir(workspace)).toContain("later2.ts");
+  });
+
+  test("under the branch name the server gave, so it still has somewhere to push", async () => {
+    const origin = await pointerOnly();
+
+    const workspace = await prepareWorkspace({
+      context: {},
+      continues: true,
+      repo: grant(origin),
+    });
+    dirs.push(workspace);
+
+    // Starting fresh is not starting on the base branch: the Stage still commits
+    // and pushes under the name the server chose.
+    expect(await gitOut(["rev-parse", "--abbrev-ref", "HEAD"], workspace)).toBe("crewbit/spec-1");
+  });
+
+  test("and pays no deepen to find that out", async () => {
+    const origin = await pointerOnly();
+
+    const workspace = await prepareWorkspace({
+      context: {},
+      continues: true,
+      // Over a `file://` url, because git ignores --depth for a plain local path.
+      repo: grant({ url: `file://${origin.url}`, branch: origin.branch }),
+    });
+    dirs.push(workspace);
+
+    // What "no fetch that is not already made" looks like from outside: the
+    // clone is still one commit deep, so `stampForkPoint`'s 200 commits of base
+    // history were never pulled.
+    expect(await gitOut(["rev-list", "--count", "HEAD"], workspace)).toBe("1");
+  });
+
+  test("a branch the remote has never seen is still the first round, unchanged", async () => {
+    const origin = await originRepo();
+    const base = await gitOut(["rev-parse", "HEAD"], origin.url);
+
+    const workspace = await prepareWorkspace({
+      context: {},
+      continues: true,
+      repo: grant(origin, "crewbit/spec-9"),
+    });
+    dirs.push(workspace);
+
+    // The fetch fails and there is nothing to read the committer of. Reading it
+    // anyway, and acting on the answer, is how this path would break.
+    expect(await gitOut(["rev-parse", "HEAD"], workspace)).toBe(base);
+    expect(await gitOut(["rev-parse", "--abbrev-ref", "HEAD"], workspace)).toBe("crewbit/spec-9");
+    const { commitsSince } = await import("./git.ts");
+    expect(await commitsSince(workspace)).toEqual([]);
+  });
+
+  test("somebody's commit on top of the runner's reads as carrying none, as stated", async () => {
+    const origin = await originRepo();
+    const base = await gitOut(["rev-parse", "HEAD"], origin.url);
+    await run("git", ["checkout", "-q", "-b", "crewbit/spec-1"], origin.url);
+    writeFileSync(join(origin.url, "mine.ts"), "export const mine = 1;\n");
+    await commitAsRunner(origin.url, "the runner's work");
+    writeFileSync(join(origin.url, "theirs.ts"), "export const theirs = 1;\n");
+    await run("git", ["add", "."], origin.url);
+    await run("git", ["commit", "-qm", "a person, on top"], origin.url);
+    await run("git", ["checkout", "-q", "main"], origin.url);
+
+    const workspace = await prepareWorkspace({
+      context: {},
+      continues: true,
+      repo: grant(origin),
+    });
+    dirs.push(workspace);
+
+    // The known limit of reading the tip rather than the history, pinned here so
+    // an inverted check is caught rather than discovered. The remote is not
+    // touched: the push that follows is refused as a non-fast-forward.
+    expect(await gitOut(["rev-parse", "HEAD"], workspace)).toBe(base);
+    expect(await readdir(workspace)).not.toContain("mine.ts");
   });
 });
 
