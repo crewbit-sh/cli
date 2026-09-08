@@ -4,9 +4,12 @@ import { cpSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } 
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
+  aheadOf,
   alreadyOnRemote,
+  BASE_REF,
   changedFiles,
   commitAll,
+  commitAt,
   commitsSince,
   committerOf,
   git,
@@ -585,6 +588,52 @@ describe("a stage that only reads", () => {
     // A fix round and a second runner both need this, and it is what the eval
     // reads. Only the reading stages lose it.
     expect(readFileSync(join(second.workspace, "app.ts"), "utf8")).toContain("43");
+  });
+});
+
+describe("how far ahead of the base a ref is", () => {
+  test("is the number of commits for a ref ahead of it, and zero for one behind", async () => {
+    const origin = bareOrigin();
+    const { workspace } = await workspaceOn(origin);
+    for (const answer of [43, 44]) {
+      writeFileSync(join(workspace, "app.ts"), `export const answer = ${answer};\n`);
+      await commitAll(workspace, `work ${answer}`);
+    }
+
+    // The question #20 wanted and could not afford: how many commits does this
+    // ref carry that the base does not.
+    expect(await aheadOf(BASE_REF, "HEAD", workspace)).toBe(2);
+    // And none the other way round: the base is an ancestor of HEAD, so it is
+    // ahead by nothing. Zero is the only answer that starts a Stage fresh.
+    expect(await aheadOf("HEAD", BASE_REF, workspace)).toBe(0);
+  });
+
+  test("is undefined, not zero, for a ref git cannot resolve", async () => {
+    const origin = bareOrigin();
+    const { workspace } = await workspaceOn(origin, "crewbit/brand-new");
+
+    // `FETCH_HEAD` in a clone that never fetched. The caller continues a branch
+    // on "cannot tell" and starts fresh only on a zero it actually read, so the
+    // two must not arrive as the same value.
+    expect(await aheadOf(BASE_REF, "FETCH_HEAD", workspace)).toBeUndefined();
+  });
+});
+
+describe("resolving a ref to the commit it names", () => {
+  test("is the sha git itself reports", async () => {
+    const origin = bareOrigin();
+    const { workspace } = await workspaceOn(origin);
+
+    // The tip is read as a sha before the deepen fetch overwrites `FETCH_HEAD`,
+    // which is why this exists rather than the ref name being carried forward.
+    expect(await commitAt("HEAD", workspace)).toBe(await head(workspace));
+  });
+
+  test("is undefined for a ref git cannot resolve, rather than an empty string", async () => {
+    const origin = bareOrigin();
+    const { workspace } = await workspaceOn(origin, "crewbit/brand-new");
+
+    expect(await commitAt("FETCH_HEAD", workspace)).toBeUndefined();
   });
 });
 

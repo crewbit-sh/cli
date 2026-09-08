@@ -151,6 +151,35 @@ export async function mergeBase(a: string, b: string, cwd: string): Promise<stri
 }
 
 /**
+ * The commit a ref names, or undefined when git could not resolve it.
+ *
+ * The fetched tip has to be read as a sha before anything else fetches, because
+ * `FETCH_HEAD` is rewritten by the next fetch and answers with its first line:
+ * a deepen that names the base branch first therefore turns `FETCH_HEAD` into
+ * the base's tip. A sha read once cannot move under the caller.
+ */
+export async function commitAt(ref: string, cwd: string): Promise<string | undefined> {
+  return (await capture(["rev-parse", "--verify", "--quiet", ref], cwd)) || undefined;
+}
+
+/**
+ * How many commits `ref` carries that `base` does not, or undefined when git
+ * could not say.
+ *
+ * Needs the history between the two, so a `--depth 1` clone has to be deepened
+ * first: without it git either fails or answers about a graft point rather than
+ * the base. Undefined rather than zero, because the caller has to tell "this
+ * branch carries nothing" from "there was no answer" — only the first is grounds
+ * for throwing a branch's tip away.
+ */
+export async function aheadOf(base: string, ref: string, cwd: string): Promise<number | undefined> {
+  const out = await capture(["rev-list", "--count", `${base}..${ref}`], cwd);
+  if (out === undefined) return undefined;
+  const count = Number(out);
+  return Number.isInteger(count) ? count : undefined;
+}
+
+/**
  * The email of whoever committed a ref, or undefined when git could not say.
  *
  * Local: it reads objects that are already in the clone, so asking it about
