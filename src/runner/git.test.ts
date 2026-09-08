@@ -408,6 +408,32 @@ describe("a workspace for work that already started", () => {
     expect(readFileSync(join(workspace, "app.ts"), "utf8")).toContain("42");
   });
 
+  /**
+   * The keepalive pushes this same ref on every tick, so the second push of a
+   * Job is the ordinary case and not a corner. A lease fixed to the tip the
+   * clone fetched is refused with `stale info` from the second push onwards,
+   * which would land tick one, lose every tick after it, and then lose the
+   * delivery of work that is real and one push away.
+   */
+  test("and pushes again after committing again, so every tick after the first still lands", async () => {
+    const origin = bareOrigin();
+    const first = await workspaceOn(origin);
+    writeFileSync(join(first.workspace, "app.ts"), "export const answer = 43;\n");
+    await commitAll(first.workspace, "one");
+    await pushed(first.workspace, first.repo);
+
+    const second = await workspaceOn(origin);
+    writeFileSync(join(second.workspace, "app.ts"), "export const answer = 44;\n");
+    await commitAll(second.workspace, "two");
+    expect((await pushed(second.workspace, second.repo)).ok).toBe(true);
+
+    writeFileSync(join(second.workspace, "app.ts"), "export const answer = 45;\n");
+    await commitAll(second.workspace, "three");
+
+    expect((await pushed(second.workspace, second.repo)).ok).toBe(true);
+    expect(await remoteHead(second.workspace, second.repo)).toBe(await head(second.workspace));
+  });
+
   test("and a second push from the continued workspace lands", async () => {
     const origin = bareOrigin();
     const first = await workspaceOn(origin);
