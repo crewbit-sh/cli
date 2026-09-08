@@ -18,6 +18,17 @@ type Repo = NonNullable<JobAssignParams["repo"]>;
 export const BASE_REF = "refs/crewbit/base";
 
 /**
+ * What this Job knows the remote to hold on its branch, and the lease its push
+ * carries. Absent means a first round, which holds no lease and forces nothing.
+ *
+ * Stamped by the clone from the tip it fetched, and moved by every push this Job
+ * lands. Never read from the remote at push time: a lease taken just before the
+ * push would agree with whatever is there, which is a blind force wearing a
+ * lease's name.
+ */
+export const LEASE_REF = "refs/crewbit/remote";
+
+/**
  * Pushes the current branch. Reports rather than throws: the caller decides.
  *
  * `stderr` rather than only the verdict, because the caller cannot ask again.
@@ -29,12 +40,33 @@ export async function pushed(
   workspace: string,
   repo: Repo,
 ): Promise<{ ok: boolean; stderr: string }> {
+  const lease = await capture(["rev-parse", "--verify", "--quiet", LEASE_REF], workspace);
+  // Read before the push, so what the lease advances to is what was actually
+  // sent rather than whatever HEAD became while the push was in flight.
+  const sending = lease ? await head(workspace) : undefined;
+
   // The ref is named explicitly on both sides. A push that let git infer the
   // destination is a push that could land somewhere the server did not name.
   const { code, stderr } = await git(
-    ["push", withToken(repo.url, repo.token), `HEAD:refs/heads/${repo.branch}`],
+    [
+      "push",
+      // The lease names the same full ref the destination does. A lease whose
+      // refname does not match the ref being pushed is silently ignored, and the
+      // push then degrades to the plain one this exists to replace.
+      ...(lease ? [`--force-with-lease=refs/heads/${repo.branch}:${lease}`] : []),
+      withToken(repo.url, repo.token),
+      `HEAD:refs/heads/${repo.branch}`,
+    ],
     workspace,
   );
+
+  // The lease is what this Job knows the remote to hold, so a push that landed
+  // moves it. Leaving it at the fetched tip is refused with `stale info` from
+  // the second push onwards, and the keepalive pushes this ref every tick: the
+  // Job would land tick one and then lose every push including its delivery.
+  // Another runner's push in between is still a refusal, which is the point.
+  if (code === 0 && sending) await git(["update-ref", LEASE_REF, sending], workspace);
+
   return { ok: code === 0, stderr };
 }
 

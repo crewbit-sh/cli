@@ -5,6 +5,7 @@ import { readdir, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createLogger, type Logger } from "../log.ts";
+import { alreadyOnRemote, BASE_REF, pushed } from "./git.ts";
 import { prepareWorkspace } from "./workspace.ts";
 
 const dirs: string[] = [];
@@ -48,6 +49,12 @@ async function seed(dir: string): Promise<void> {
   await run("git", ["init", "-q", "-b", "main"], dir);
   await run("git", ["config", "user.email", "test@example.test"], dir);
   await run("git", ["config", "user.name", "test"], dir);
+  // receive-pack answers a push and only then runs `gc --auto`, detached, with
+  // the pusher not waiting on it. A test that removes this directory right
+  // after pushing to it can catch that orphaned gc mid-write and find the
+  // repository whole again, which `git.test.ts`'s template records having
+  // reproduced on a loaded CI. Every copy of the template inherits the setting.
+  await run("git", ["config", "gc.auto", "0"], dir);
   await run("git", ["add", "."], dir);
   await run("git", ["commit", "-qm", "first"], dir);
 }
@@ -414,23 +421,23 @@ function runWithoutAmbientGit(args: string[], cwd: string): Promise<number> {
   });
 }
 
-describe("a base branch that moved after the work branch was cut", () => {
-  /** A branch cut from an older base, with the base then gaining commits. */
-  async function diverged(): Promise<{ url: string; branch: string }> {
-    const origin = await originRepo();
-    await run("git", ["checkout", "-q", "-b", "crewbit/spec-1"], origin.url);
-    writeFileSync(join(origin.url, "mine.ts"), "export const mine = 1;\n");
-    await commitAsRunner(origin.url, "the change");
+/** A branch cut from an older base, with the base then gaining commits. */
+async function diverged(): Promise<{ url: string; branch: string }> {
+  const origin = await originRepo();
+  await run("git", ["checkout", "-q", "-b", "crewbit/spec-1"], origin.url);
+  writeFileSync(join(origin.url, "mine.ts"), "export const mine = 1;\n");
+  await commitAsRunner(origin.url, "the change");
 
-    await run("git", ["checkout", "-q", "main"], origin.url);
-    for (const n of [1, 2, 3]) {
-      writeFileSync(join(origin.url, `later${n}.ts`), `export const later = ${n};\n`);
-      await run("git", ["add", "."], origin.url);
-      await run("git", ["commit", "-qm", `later ${n}`], origin.url);
-    }
-    return origin;
+  await run("git", ["checkout", "-q", "main"], origin.url);
+  for (const n of [1, 2, 3]) {
+    writeFileSync(join(origin.url, `later${n}.ts`), `export const later = ${n};\n`);
+    await run("git", ["add", "."], origin.url);
+    await run("git", ["commit", "-qm", `later ${n}`], origin.url);
   }
+  return origin;
+}
 
+describe("a base branch that moved after the work branch was cut", () => {
   test("the diff is the branch's own change, and not the base's newer work reversed", async () => {
     const origin = await diverged();
 
@@ -863,5 +870,120 @@ describe("what a checked-out repository may configure the engine with", () => {
     const listed = await gitOut(["ls-files", "-v"], workspace);
     expect(listed.split("\n").filter((line) => line.startsWith("S"))).toEqual([]);
     expect(lines).toEqual([]);
+  });
+});
+
+describe("pushing a branch the runner already owns", () => {
+  const deliver = (origin: { url: string; branch: string }, branch = "crewbit/spec-1") =>
+    prepareWorkspace({ context: {}, delivers: true, repo: grant(origin, branch) });
+
+  /**
+   * What crewbit-sh/cli#4 will do inside the runner, done here by hand: the
+   * branch's own commits replayed onto the base's current tip. The result is no
+   * longer a fast-forward of what the remote holds, which is the whole of why a
+   * fix round asked to rebase could not deliver.
+   */
+  async function rebaseOntoBase(workspace: string, origin: { url: string }): Promise<void> {
+    const fork = await gitOut(["rev-parse", BASE_REF], workspace);
+    expect(await run("git", ["fetch", "-q", origin.url, "main"], workspace)).toBe(0);
+    expect(await run("git", ["rebase", "-q", "--onto", "FETCH_HEAD", fork], workspace)).toBe(0);
+  }
+
+  /** A second runner, handed the same Job, that pushes while this one works. */
+  async function secondRunnerPushes(origin: { url: string }): Promise<string> {
+    const clone = scratch();
+    expect(await run("git", ["clone", "-q", origin.url, "."], clone)).toBe(0);
+    expect(await run("git", ["checkout", "-q", "crewbit/spec-1"], clone)).toBe(0);
+    writeFileSync(join(clone, "theirs.ts"), "export const theirs = 1;\n");
+    await commitAsRunner(clone, "another runner, on the same branch");
+    expect(
+      await run("git", ["push", "-q", "origin", "HEAD:refs/heads/crewbit/spec-1"], clone),
+    ).toBe(0);
+    return await gitOut(["rev-parse", "HEAD"], clone);
+  }
+
+  const originTip = (origin: { url: string }, branch = "crewbit/spec-1") =>
+    gitOut(["rev-parse", `refs/heads/${branch}`], origin.url);
+
+  test("a rebase onto a moved base lands, and the remote ends at the local tip", async () => {
+    const origin = await diverged();
+    const workspace = await deliver(origin);
+    dirs.push(workspace);
+    await rebaseOntoBase(workspace, origin);
+
+    const { ok } = await pushed(workspace, grant(origin));
+
+    // A fix round asked to rebase did exactly this, ran the suite, and stopped
+    // with `blocked.md`: the plain push is a non-fast-forward of what the remote
+    // holds, so the round's work never left the runner.
+    expect(ok).toBe(true);
+    expect(await originTip(origin)).toBe(await gitOut(["rev-parse", "HEAD"], workspace));
+  });
+
+  test("another runner's push between this Job's fetch and its own is refused", async () => {
+    const origin = await diverged();
+    const workspace = await deliver(origin);
+    dirs.push(workspace);
+    await rebaseOntoBase(workspace, origin);
+    const theirs = await secondRunnerPushes(origin);
+
+    const { ok } = await pushed(workspace, grant(origin));
+
+    // The guarantee the fetch exists for: the lease is the tip this Job started
+    // from, so a branch that moved since is not history this Job may replace.
+    expect(ok).toBe(false);
+    expect(await originTip(origin)).toBe(theirs);
+    // And this is what makes `deliver` write today's `blocked.md` rather than
+    // report work that is not on the remote as delivered.
+    expect(await alreadyOnRemote(workspace, grant(origin))).toBe(false);
+  });
+
+  test("a first round pushes as today, creating the branch the remote did not have", async () => {
+    const origin = await originRepo();
+    const workspace = await deliver(origin, "crewbit/spec-9");
+    dirs.push(workspace);
+
+    expect((await pushed(workspace, grant(origin, "crewbit/spec-9"))).ok).toBe(true);
+    expect(await originTip(origin, "crewbit/spec-9")).toBe(
+      await gitOut(["rev-parse", "HEAD"], workspace),
+    );
+  });
+
+  test("and holds no lease, so a branch that appeared meanwhile is not forced over", async () => {
+    const origin = await originRepo();
+    const workspace = await deliver(origin, "crewbit/spec-9");
+    dirs.push(workspace);
+    // Somebody creates the branch this Job was told to push, at a commit this
+    // Job has never seen. A lease stamped for a first round would force over it.
+    writeFileSync(join(origin.url, "unrelated.ts"), "export const unrelated = 1;\n");
+    await run("git", ["add", "."], origin.url);
+    await run("git", ["commit", "-qm", "somebody else, on a branch we never fetched"], origin.url);
+    const theirs = await gitOut(["rev-parse", "HEAD"], origin.url);
+    await run("git", ["branch", "crewbit/spec-9", theirs], origin.url);
+
+    expect((await pushed(workspace, grant(origin, "crewbit/spec-9"))).ok).toBe(false);
+    expect(await originTip(origin, "crewbit/spec-9")).toBe(theirs);
+  });
+
+  test("a branch somebody committed on top of is not forced over either", async () => {
+    const origin = await originRepo();
+    await run("git", ["checkout", "-q", "-b", "crewbit/spec-1"], origin.url);
+    writeFileSync(join(origin.url, "mine.ts"), "export const mine = 1;\n");
+    await commitAsRunner(origin.url, "the runner's work");
+    writeFileSync(join(origin.url, "theirs.ts"), "export const theirs = 1;\n");
+    await run("git", ["add", "."], origin.url);
+    await run("git", ["commit", "-qm", "a person, on top"], origin.url);
+    const theirs = await gitOut(["rev-parse", "HEAD"], origin.url);
+    await run("git", ["checkout", "-q", "main"], origin.url);
+
+    const workspace = await deliver(origin);
+    dirs.push(workspace);
+
+    // The tip is somebody else's, so the workspace started fresh from the base
+    // and the non-fast-forward refusal is the only thing keeping their commit.
+    // This is the one way a lease could lose work rather than save it.
+    expect((await pushed(workspace, grant(origin))).ok).toBe(false);
+    expect(await originTip(origin)).toBe(theirs);
+    expect(await gitOut(["show", `${theirs}:theirs.ts`], origin.url)).toContain("theirs = 1");
   });
 });

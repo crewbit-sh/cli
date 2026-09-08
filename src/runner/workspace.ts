@@ -18,6 +18,7 @@ import {
   committerOf,
   diffSince,
   git,
+  LEASE_REF
   mergeBase,
   skipWorktree,
   trackedUnder,
@@ -135,6 +136,16 @@ async function clone(
         (branched.stderr ? `\n${branched.stderr}` : ""),
     );
   }
+
+  // What the remote held when this Job fetched, which is the history its push
+  // may replace and nothing more. Taken from the checked-out HEAD rather than
+  // from `FETCH_HEAD`, because `stampForkPoint`'s deepen fetch overwrites that.
+  //
+  // Only for a branch that was actually continued. When the fetch finds a tip
+  // somebody else committed, `ownWork` deliberately starts fresh from the base,
+  // and the non-fast-forward refusal that follows is the only thing keeping
+  // their commit: a lease here would force over it.
+  if (carriesWork) await git(["update-ref", LEASE_REF, "HEAD"], into);
 
   // The branch existed, so it was cut from a base that has since moved, and the
   // ref stamped above is the base's tip rather than where this work started.
