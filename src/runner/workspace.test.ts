@@ -778,6 +778,57 @@ describe("what a checked-out repository may configure the engine with", () => {
     ]);
   });
 
+  test("removing it is not a change to git, so the workspace starts clean", async () => {
+    const origin = await hostileOriginRepo();
+
+    const workspace = await prepareWorkspace({ context: {}, repo: grant(origin) });
+    dirs.push(workspace);
+
+    // The files stay tracked, so removing them from the worktree alone shows
+    // every one of them as deleted, and the code stage's `git add -A` commits
+    // the deletions: a pull request that deletes the repository's own agents,
+    // skills and settings.
+    expect(await gitOut(["status", "--porcelain"], workspace)).toBe("");
+    const present = await readdir(join(workspace, ".claude"));
+    expect(present).not.toContain("settings.json");
+    expect(present).not.toContain("agents");
+    expect(present).not.toContain("skills");
+    expect(await readdir(workspace)).not.toContain(".mcp.json");
+  });
+
+  test("so a commit of everything carries only what the engine wrote", async () => {
+    const origin = await hostileOriginRepo();
+    const workspace = await prepareWorkspace({ context: {}, repo: grant(origin) });
+    dirs.push(workspace);
+
+    // The fake engine: one file written, which is the whole of its change.
+    writeFileSync(join(workspace, "new.ts"), "export const added = 1;\n");
+    const { changedFiles, commitAll } = await import("./git.ts");
+    expect(await commitAll(workspace, "work")).toBe(true);
+
+    // What the server's checks read. Measured on crewbit-v2#291: a diff of 48
+    // files for a change of 4, the other 44 being this removal.
+    expect(await changedFiles(workspace)).toBe("new.ts");
+  });
+
+  test("and the rules and CLAUDE.md are still on disk, untouched", async () => {
+    const origin = await hostileOriginRepo();
+
+    const workspace = await prepareWorkspace({ context: {}, repo: grant(origin) });
+    dirs.push(workspace);
+
+    expect(await readdir(join(workspace, ".claude", "rules")).then((f) => f.sort())).toEqual([
+      "planning.md",
+      "ready_for_code.md",
+      "testing.md",
+    ]);
+    const rules = join(workspace, ".claude", "rules");
+    expect(await readFile(join(rules, "planning.md"), "utf8")).toBe("# planning\n");
+    expect(await readFile(join(rules, "ready_for_code.md"), "utf8")).toBe("# ready for code\n");
+    expect(await readFile(join(rules, "testing.md"), "utf8")).toBe("# testing\n");
+    expect(await readFile(join(workspace, "CLAUDE.md"), "utf8")).toBe("# project instructions\n");
+  });
+
   test("a repository carrying none of it is unchanged, and logs nothing", async () => {
     const origin = await originRepo();
     const { log, lines } = reading();
@@ -791,6 +842,26 @@ describe("what a checked-out repository may configure the engine with", () => {
     dirs.push(workspace);
 
     expect(await readFile(join(workspace, "app.ts"), "utf8")).toContain("answer = 42");
+    expect(lines).toEqual([]);
+  });
+
+  test("and carries no skip-worktree entries, because there was nothing to strip", async () => {
+    const origin = await originRepo();
+    const { log, lines } = reading();
+
+    const workspace = await prepareWorkspace({
+      context: {},
+      repo: grant(origin),
+      log,
+      jobId: "job_3",
+    });
+    dirs.push(workspace);
+
+    // `git ls-files -v` prefixes a skip-worktree entry with `S`. The ordinary
+    // Job clones a repository with none of this, and its index must read
+    // exactly as it did before.
+    const listed = await gitOut(["ls-files", "-v"], workspace);
+    expect(listed.split("\n").filter((line) => line.startsWith("S"))).toEqual([]);
     expect(lines).toEqual([]);
   });
 });

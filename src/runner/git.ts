@@ -155,6 +155,36 @@ export async function changedFiles(workspace: string): Promise<string | undefine
 }
 
 /**
+ * What git tracks under a set of pathspecs, read out of the index.
+ *
+ * The index and not the worktree, which is what makes this answerable after the
+ * files are gone: the caller removes directories wholesale and `skipWorktree`
+ * takes index entries, so the names have to come from git rather than from a
+ * walk of a tree that no longer has them.
+ *
+ * `-z` because a path is bytes: without it git quotes the awkward ones, and a
+ * quoted name is not the name the index holds.
+ */
+export async function trackedUnder(workspace: string, paths: string[]): Promise<string[]> {
+  if (paths.length === 0) return [];
+  const out = await captureRaw(["ls-files", "-z", "--", ...paths], workspace);
+  return out ? out.split("\0").filter(Boolean) : [];
+}
+
+/**
+ * Tells git to stop comparing these paths against the worktree.
+ *
+ * Reports rather than throws, the way `git()` does: the caller decides, and
+ * here it decides to fail the Job. A path removed from the worktree but left in
+ * the index reads as a deletion, so `git add -A` in a writing Stage stages it
+ * and the pull request deletes the repository's own agents, skills and
+ * settings — 44 of them on the Run this was measured on.
+ */
+export async function skipWorktree(workspace: string, paths: string[]): Promise<GitRun> {
+  return git(["update-index", "--skip-worktree", "--", ...paths], workspace);
+}
+
+/**
  * The grant travels in the url, which is how git takes a token over HTTPS. A
  * local path or an empty token is left alone, so a test can use a directory.
  */
@@ -215,6 +245,15 @@ export function redact(said: string): string {
 }
 
 async function capture(args: string[], cwd: string): Promise<string | undefined> {
+  const out = await captureRaw(args, cwd);
+  return out === undefined ? undefined : out.trim();
+}
+
+/**
+ * Untrimmed, for the output whose separator is not whitespace: trimming a
+ * `-z` listing eats a leading space that is part of the first path's name.
+ */
+async function captureRaw(args: string[], cwd: string): Promise<string | undefined> {
   return new Promise((resolve) => {
     const child = spawn("git", args, {
       cwd,
@@ -226,7 +265,7 @@ async function capture(args: string[], cwd: string): Promise<string | undefined>
       out += chunk;
     });
     child.on("error", () => resolve(undefined));
-    child.on("close", (code) => resolve(code === 0 ? out.trim() : undefined));
+    child.on("close", (code) => resolve(code === 0 ? out : undefined));
   });
 }
 
