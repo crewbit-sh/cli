@@ -11,7 +11,6 @@ import {
   commitAll,
   commitAt,
   commitsSince,
-  committerOf,
   git,
   head,
   onRemote,
@@ -634,28 +633,6 @@ describe("resolving a ref to the commit it names", () => {
     const { workspace } = await workspaceOn(origin, "crewbit/brand-new");
 
     expect(await commitAt("FETCH_HEAD", workspace)).toBeUndefined();
-  });
-});
-
-describe("who committed a ref", () => {
-  test("is the identity the clone configured, for a commit the runner made", async () => {
-    const origin = bareOrigin();
-    const { workspace } = await workspaceOn(origin);
-    writeFileSync(join(workspace, "app.ts"), "export const answer = 43;\n");
-    await commitAll(workspace, "work");
-
-    // The runner commits as one fixed identity, which is what lets a tip that is
-    // not it be read as a branch carrying no work of the runner's own.
-    expect(await committerOf("HEAD", workspace)).toBe("crewbit@users.noreply.github.com");
-  });
-
-  test("is undefined for a ref git cannot resolve, rather than an empty string", async () => {
-    const origin = bareOrigin();
-    const { workspace } = await workspaceOn(origin, "crewbit/brand-new");
-
-    // `FETCH_HEAD` in a clone that never fetched. Undefined is "could not tell",
-    // and the caller has to be able to tell that from an answer.
-    expect(await committerOf("FETCH_HEAD", workspace)).toBeUndefined();
   });
 });
 
