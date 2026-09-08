@@ -13,7 +13,7 @@ import { tmpdir } from "node:os";
 import { dirname, resolve, sep } from "node:path";
 import type { JobAssignParams } from "@crewbit/protocol";
 import type { Logger } from "../log.ts";
-import { BASE_REF, diffSince, git, mergeBase, withToken } from "./git.ts";
+import { BASE_REF, committerOf, diffSince, git, mergeBase, withToken } from "./git.ts";
 
 export type WorkspaceInput = {
   context: Record<string, string>;
@@ -111,16 +111,15 @@ async function clone(
   // directions of getting this wrong have happened: the plan stage taking the
   // branch pinned re-planned Specs to an old snapshot, and the eval stage not
   // taking it judged the base against itself.
-  const existing = continues
-    ? (await git(["fetch", "--depth", "1", url, repo.branch], into)).code
-    : 1;
-  const branched =
-    existing === 0
-      ? await git(["checkout", "-q", "-B", repo.branch, "FETCH_HEAD"], into)
-      : // The first round of a Run, where there is nothing to continue. The
-        // branch the server named, always, even for a read-only Stage: a Stage
-        // that commits when it should not have does so somewhere harmless.
-        await git(["checkout", "-q", "-b", repo.branch], into);
+  const fetched =
+    continues && (await git(["fetch", "--depth", "1", url, repo.branch], into)).code === 0;
+  const carriesWork = fetched && (await ownWork(into));
+  const branched = carriesWork
+    ? await git(["checkout", "-q", "-B", repo.branch, "FETCH_HEAD"], into)
+    : // The first round of a Run, and the branch that only ever pointed at a
+      // base. The branch the server named, always, even for a read-only Stage:
+      // a Stage that commits when it should not have does so somewhere harmless.
+      await git(["checkout", "-q", "-b", repo.branch], into);
   if (branched.code !== 0) {
     throw new Error(
       `could not check out ${repo.branch} (git exited ${branched.code})` +
@@ -130,7 +129,7 @@ async function clone(
 
   // The branch existed, so it was cut from a base that has since moved, and the
   // ref stamped above is the base's tip rather than where this work started.
-  if (existing === 0) await stampForkPoint(url, repo, into);
+  if (carriesWork) await stampForkPoint(url, repo, into);
 
   // Local to this clone, never global. Without it a commit is attributed to
   // whoever owns the machine, and on a shared runner that is the wrong person.
@@ -150,6 +149,32 @@ async function clone(
   // The runner keeps pushing because it names the destination on the command
   // line rather than through a configured remote.
   await git(["remote", "remove", "origin"], into);
+}
+
+/**
+ * Whether the fetched branch carries commits of the runner's own.
+ *
+ * Read from the committer of the tip, which is local once the fetch has
+ * returned. The exact question — how many commits is this branch ahead of the
+ * base — cannot be asked of a `--depth 1` clone: a shallow clone has no common
+ * ancestor, so it needs the deepen `stampForkPoint` pays `BASE_DEPTH` for, and
+ * paying it before the decision is the cost this exists to avoid.
+ *
+ * The runner commits as one fixed identity and nothing else commits on these
+ * branches, so a tip that is somebody else's is a branch with no work of the
+ * runner's. Its limit is that it reads the tip rather than the history: a branch
+ * somebody committed on top of reads as carrying none, the local clone starts
+ * fresh, and the push that follows is refused as a non-fast-forward with the
+ * remote untouched.
+ *
+ * Deliberately asymmetric. Only a committer that was positively read and is
+ * somebody else's starts fresh; git failing to answer continues the branch,
+ * which is what it did before any of this. A wrong "continue" costs an old tree,
+ * and a wrong "fresh" drops work.
+ */
+async function ownWork(into: string): Promise<boolean> {
+  const committer = await committerOf("FETCH_HEAD", into);
+  return committer === undefined || committer === COMMITTER.email;
 }
 
 /**
