@@ -27,13 +27,43 @@ holding before it exits, and a second stop exits immediately.
 ## Investigate a Run
 
 ```
-crewbit run <id> --token <the same runner token>
+crewbit run view <id> --token <the same runner token>
 ```
 
 Prints the Run's state, how long it has been there, its transitions and how
 many events its Jobs reported, without opening a browser. Events are counted
 but not fetched by default; `--events <n>` asks for that many. `--output json`
 prints the server's own response instead.
+
+## Drive a Run
+
+Every command takes the same `--token`, `--server` and `--output json` as
+`run view`, and each is one request to the server that owns the Run.
+
+| Command | What it does |
+| --- | --- |
+| `crewbit spec list --project <id>` | the Specs a Project's sources are offering |
+| `crewbit spec plan <ref>` | start planning one, as `acme/api#12` |
+| `crewbit spec run <ref>` | the fast path: start one running |
+| `crewbit run list` | the org's live Runs, most recently updated first |
+| `crewbit run view <id>` | read one Run for investigation |
+| `crewbit run approve <id>` | answer the plan gate: the code stage runs next |
+| `crewbit run reject <id>` | send it back, with `--reason` |
+| `crewbit run replan <id>` | plan again from the Spec as it is now |
+| `crewbit run answer <id>` | answer the question a stage asked, with `--data` or `--file` |
+| `crewbit run cancel <id>` | end the Run now, whatever it was in the middle of |
+| `crewbit run judge <id>` | judge the review as it stands |
+| `crewbit run now <id>` | take the Run's next step without waiting to be scheduled |
+| `crewbit project list` | the Projects this credential's org owns |
+| `crewbit project view <id>` | one Project, its sources and what each answers for |
+
+An answer is a JSON object, and `crewbit run answer` says so before it sends
+anything:
+
+```
+crewbit run answer run_abc --data '{"choice":"the second one"}'
+crewbit run answer run_abc --file answer.json
+```
 
 ## What changed between versions
 
