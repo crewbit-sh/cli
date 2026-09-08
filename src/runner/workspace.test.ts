@@ -5,7 +5,7 @@ import { readdir, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createLogger, type Logger } from "../log.ts";
-import { alreadyOnRemote, BASE_REF, pushed } from "./git.ts";
+import { alreadyOnRemote, BASE_REF, commitAll, pushed } from "./git.ts";
 import { prepareWorkspace } from "./workspace.ts";
 
 const dirs: string[] = [];
@@ -81,16 +81,16 @@ async function originRepo(extra: Record<string, string> = {}): Promise<{
   return { url: dir, branch: "main" };
 }
 
-/** Who the runner commits as, and the only identity these branches carry. */
+/** Who the runner commits as, which is one of the identities these branches carry. */
 const RUNNER = "crewbit@users.noreply.github.com";
 
 /**
  * A commit made the way the runner makes one.
  *
- * A branch a Stage continues was written by the runner and by nothing else, so a
- * fixture standing for one has to be committed under that identity. `seed`'s
- * `test@example.test` is somebody else, and a branch whose tip is somebody
- * else's is a different case entirely.
+ * The decision to continue a branch no longer reads the committer, but a fixture
+ * standing for a round of the runner's own work still has to be one: `seed`'s
+ * `test@example.test` is a person, and the cases here turn on having both
+ * identities on the same branch.
  */
 async function commitAsRunner(dir: string, message: string): Promise<void> {
   await run("git", ["add", "."], dir);
@@ -641,21 +641,47 @@ describe("a branch that carries no commits of its own", () => {
     expect(await gitOut(["rev-parse", "--abbrev-ref", "HEAD"], workspace)).toBe("crewbit/spec-1");
   });
 
-  test("and pays no deepen to find that out", async () => {
+  test("even out of a genuinely shallow clone, which is what the deepen is for", async () => {
     const origin = await pointerOnly();
+    const base = await gitOut(["rev-parse", "HEAD"], origin.url);
 
     const workspace = await prepareWorkspace({
       context: {},
       continues: true,
-      // Over a `file://` url, because git ignores --depth for a plain local path.
+      // Over a `file://` url, because git ignores --depth for a plain local
+      // path: it hardlinks the whole history instead. This is the only case
+      // here where the count cannot be read without the deepen first, so it is
+      // the test that fails if the deepen is missing or runs after the
+      // decision.
       repo: grant({ url: `file://${origin.url}`, branch: origin.branch }),
     });
     dirs.push(workspace);
 
-    // What "no fetch that is not already made" looks like from outside: the
-    // clone is still one commit deep, so `stampForkPoint`'s 200 commits of base
-    // history were never pulled.
-    expect(await gitOut(["rev-list", "--count", "HEAD"], workspace)).toBe("1");
+    expect(await gitOut(["rev-parse", "HEAD"], workspace)).toBe(base);
+    expect(await gitOut(["rev-parse", "HEAD"], workspace)).not.toBe(origin.at);
+    expect(await readdir(workspace)).toContain("later2.ts");
+  });
+
+  test("a branch whose tip is exactly the base commit starts fresh, and holds no lease", async () => {
+    const origin = await originRepo();
+    const base = await gitOut(["rev-parse", "HEAD"], origin.url);
+    await run("git", ["branch", "crewbit/spec-1", base], origin.url);
+
+    const workspace = await prepareWorkspace({
+      context: {},
+      continues: true,
+      repo: grant(origin),
+    });
+    dirs.push(workspace);
+
+    // Zero commits ahead of the base is the case #20 was written for, and it
+    // still starts fresh: under the name the server gave, and with no lease, so
+    // a branch that moved between this fetch and the push is not forced over.
+    expect(await gitOut(["rev-parse", "HEAD"], workspace)).toBe(base);
+    expect(await gitOut(["rev-parse", "--abbrev-ref", "HEAD"], workspace)).toBe("crewbit/spec-1");
+    expect(
+      await gitOut(["rev-parse", "--verify", "--quiet", "refs/crewbit/remote"], workspace),
+    ).toBe("");
   });
 
   test("a branch the remote has never seen is still the first round, unchanged", async () => {
@@ -669,23 +695,62 @@ describe("a branch that carries no commits of its own", () => {
     });
     dirs.push(workspace);
 
-    // The fetch fails and there is nothing to read the committer of. Reading it
-    // anyway, and acting on the answer, is how this path would break.
+    // The fetch fails, so there is no tip to count commits from and no deepen
+    // paid. Reaching for one anyway is how this path would break.
     expect(await gitOut(["rev-parse", "HEAD"], workspace)).toBe(base);
     expect(await gitOut(["rev-parse", "--abbrev-ref", "HEAD"], workspace)).toBe("crewbit/spec-9");
     const { commitsSince } = await import("./git.ts");
     expect(await commitsSince(workspace)).toEqual([]);
   });
+});
 
-  test("somebody's commit on top of the runner's reads as carrying none, as stated", async () => {
+describe("a branch that carries commits the base does not, whoever committed them", () => {
+  /** A person's commit on top of the runner's rounds, which #291's branch had. */
+  async function personOnTop(): Promise<{ url: string; branch: string; tip: string }> {
     const origin = await originRepo();
-    const base = await gitOut(["rev-parse", "HEAD"], origin.url);
     await run("git", ["checkout", "-q", "-b", "crewbit/spec-1"], origin.url);
     writeFileSync(join(origin.url, "mine.ts"), "export const mine = 1;\n");
     await commitAsRunner(origin.url, "the runner's work");
     writeFileSync(join(origin.url, "theirs.ts"), "export const theirs = 1;\n");
     await run("git", ["add", "."], origin.url);
     await run("git", ["commit", "-qm", "a person, on top"], origin.url);
+    const tip = await gitOut(["rev-parse", "HEAD"], origin.url);
+    await run("git", ["checkout", "-q", "main"], origin.url);
+    return { ...origin, tip };
+  }
+
+  test("a person's commit on top of the runner's is continued, not started over", async () => {
+    const origin = await personOnTop();
+
+    const workspace = await prepareWorkspace({
+      context: {},
+      continues: true,
+      repo: grant(origin),
+    });
+    dirs.push(workspace);
+
+    // A `chore:` commit the coordinator pushed on top of three rounds of the
+    // runner's own work made the next round start fresh from the base, and its
+    // push was then refused as a non-fast-forward: the round ended in
+    // `error.txt` with no turn spent, and the branch's real work sat one commit
+    // below.
+    expect(await gitOut(["rev-parse", "HEAD"], workspace)).toBe(origin.tip);
+    const files = await readdir(workspace);
+    expect(files).toContain("mine.ts");
+    expect(files).toContain("theirs.ts");
+  });
+
+  test("and so is a branch whose only commit is a person's", async () => {
+    const origin = await originRepo();
+    await run("git", ["checkout", "-q", "-b", "crewbit/spec-1"], origin.url);
+    writeFileSync(join(origin.url, "theirs.ts"), "export const theirs = 1;\n");
+    await run("git", ["add", "."], origin.url);
+    await run(
+      "git",
+      ["commit", "-qm", "a reviewer's fix, on a branch with nothing else"],
+      origin.url,
+    );
+    const tip = await gitOut(["rev-parse", "HEAD"], origin.url);
     await run("git", ["checkout", "-q", "main"], origin.url);
 
     const workspace = await prepareWorkspace({
@@ -695,11 +760,11 @@ describe("a branch that carries no commits of its own", () => {
     });
     dirs.push(workspace);
 
-    // The known limit of reading the tip rather than the history, pinned here so
-    // an inverted check is caught rather than discovered. The remote is not
-    // touched: the push that follows is refused as a non-fast-forward.
-    expect(await gitOut(["rev-parse", "HEAD"], workspace)).toBe(base);
-    expect(await readdir(workspace)).not.toContain("mine.ts");
+    // No commit of the runner's anywhere on it, so the committer of the tip is
+    // no help at all. A branch carries work when it has commits the base does
+    // not, whoever made them.
+    expect(await gitOut(["rev-parse", "HEAD"], workspace)).toBe(tip);
+    expect(await readdir(workspace)).toContain("theirs.ts");
   });
 });
 
@@ -965,7 +1030,7 @@ describe("pushing a branch the runner already owns", () => {
     expect(await originTip(origin, "crewbit/spec-9")).toBe(theirs);
   });
 
-  test("a branch somebody committed on top of is not forced over either", async () => {
+  test("a branch somebody committed on top of is built on, and their commit kept", async () => {
     const origin = await originRepo();
     await run("git", ["checkout", "-q", "-b", "crewbit/spec-1"], origin.url);
     writeFileSync(join(origin.url, "mine.ts"), "export const mine = 1;\n");
@@ -978,12 +1043,19 @@ describe("pushing a branch the runner already owns", () => {
 
     const workspace = await deliver(origin);
     dirs.push(workspace);
+    writeFileSync(join(workspace, "round.ts"), "export const round = 2;\n");
+    expect(await commitAll(workspace, "the round after theirs")).toBe(true);
 
-    // The tip is somebody else's, so the workspace started fresh from the base
-    // and the non-fast-forward refusal is the only thing keeping their commit.
-    // This is the one way a lease could lose work rather than save it.
-    expect((await pushed(workspace, grant(origin))).ok).toBe(false);
-    expect(await originTip(origin)).toBe(theirs);
-    expect(await gitOut(["show", `${theirs}:theirs.ts`], origin.url)).toContain("theirs = 1");
+    // The whole flow, end to end: the round starts from their commit, so its own
+    // push is a fast-forward the lease permits rather than the non-fast-forward
+    // that used to end the round in `error.txt` with no turn spent.
+    expect((await pushed(workspace, grant(origin))).ok).toBe(true);
+    expect(await originTip(origin)).toBe(await gitOut(["rev-parse", "HEAD"], workspace));
+    // Preserved and built on, never overwritten. The lease is on their commit,
+    // which is what makes forcing over it impossible rather than unlikely.
+    expect(
+      await run("git", ["merge-base", "--is-ancestor", theirs, "crewbit/spec-1"], origin.url),
+    ).toBe(0);
+    expect(await gitOut(["show", "crewbit/spec-1:theirs.ts"], origin.url)).toContain("theirs = 1");
   });
 });

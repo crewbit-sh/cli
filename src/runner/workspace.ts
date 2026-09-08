@@ -14,8 +14,9 @@ import { dirname, resolve, sep } from "node:path";
 import type { JobAssignParams } from "@crewbit/protocol";
 import type { Logger } from "../log.ts";
 import {
+  aheadOf,
   BASE_REF,
-  committerOf,
+  commitAt,
   diffSince,
   git,
   LEASE_REF,
@@ -123,9 +124,9 @@ async function clone(
   // taking it judged the base against itself.
   const fetched =
     continues && (await git(["fetch", "--depth", "1", url, repo.branch], into)).code === 0;
-  const carriesWork = fetched && (await ownWork(into));
+  const carriesWork = fetched ? await workToContinue(url, repo, into) : undefined;
   const branched = carriesWork
-    ? await git(["checkout", "-q", "-B", repo.branch, "FETCH_HEAD"], into)
+    ? await git(["checkout", "-q", "-B", repo.branch, carriesWork], into)
     : // The first round of a Run, and the branch that only ever pointed at a
       // base. The branch the server named, always, even for a read-only Stage:
       // a Stage that commits when it should not have does so somewhere harmless.
@@ -138,18 +139,18 @@ async function clone(
   }
 
   // What the remote held when this Job fetched, which is the history its push
-  // may replace and nothing more. Taken from the checked-out HEAD rather than
-  // from `FETCH_HEAD`, because `stampForkPoint`'s deepen fetch overwrites that.
+  // may replace and nothing more. The sha `workToContinue` read, rather than
+  // `FETCH_HEAD`, which its deepen fetch has since overwritten.
   //
-  // Only for a branch that was actually continued. When the fetch finds a tip
-  // somebody else committed, `ownWork` deliberately starts fresh from the base,
-  // and the non-fast-forward refusal that follows is the only thing keeping
-  // their commit: a lease here would force over it.
-  if (carriesWork) await git(["update-ref", LEASE_REF, "HEAD"], into);
+  // Only for a branch that was actually continued, and on one that is what
+  // keeps a person's commit: the lease is the tip their commit is on, so the
+  // push fast-forwards it and builds on it rather than replacing it. A branch
+  // started fresh holds no lease and forces over nothing.
+  if (carriesWork) await git(["update-ref", LEASE_REF, carriesWork], into);
 
   // The branch existed, so it was cut from a base that has since moved, and the
   // ref stamped above is the base's tip rather than where this work started.
-  if (carriesWork) await stampForkPoint(url, repo, into);
+  if (carriesWork) await stampForkPoint(repo, into);
 
   // Local to this clone, never global. Without it a commit is attributed to
   // whoever owns the machine, and on a shared runner that is the wrong person.
@@ -172,29 +173,49 @@ async function clone(
 }
 
 /**
- * Whether the fetched branch carries commits of the runner's own.
+ * The commit to continue the branch from, or undefined to start fresh.
  *
- * Read from the committer of the tip, which is local once the fetch has
- * returned. The exact question — how many commits is this branch ahead of the
- * base — cannot be asked of a `--depth 1` clone: a shallow clone has no common
- * ancestor, so it needs the deepen `stampForkPoint` pays `BASE_DEPTH` for, and
- * paying it before the decision is the cost this exists to avoid.
+ * A branch carries work when it has commits the base does not, whoever
+ * committed them. The committer is not consulted: reading it meant a person's
+ * commit on a factory branch dropped every round before it, and a
+ * coordinator's `chore:` on top of three rounds of the runner's own work sent
+ * the next round back to the base, where its push was refused as a
+ * non-fast-forward with the branch's real work sitting one commit below.
  *
- * The runner commits as one fixed identity and nothing else commits on these
- * branches, so a tip that is somebody else's is a branch with no work of the
- * runner's. Its limit is that it reads the tip rather than the history: a branch
- * somebody committed on top of reads as carrying none, the local clone starts
- * fresh, and the push that follows is refused as a non-fast-forward with the
- * remote untouched.
+ * The count is what a `--depth 1` clone cannot answer — a shallow clone has no
+ * common ancestor with the base — so the deepen happens here, before the
+ * decision, rather than inside `stampForkPoint` after it. It is the same one
+ * fetch a continued round already paid, and a round that found no branch on the
+ * remote never reaches it.
  *
- * Deliberately asymmetric. Only a committer that was positively read and is
- * somebody else's starts fresh; git failing to answer continues the branch,
- * which is what it did before any of this. A wrong "continue" costs an old tree,
- * and a wrong "fresh" drops work.
+ * **The tip is read as a sha first.** `fetch --deepen` writes both refs into
+ * `FETCH_HEAD` and `rev-parse FETCH_HEAD` then answers with the first line, the
+ * base branch's tip: taking `FETCH_HEAD` after the deepen would check out the
+ * base under the branch name and drop the branch's work on every round.
+ *
+ * Deliberately asymmetric, the way reading the committer was. Only a count that
+ * was positively read and is zero starts fresh — the pointer at an old base
+ * #20 was written for, which still starts fresh. A count git could not answer
+ * continues the branch, because a wrong "continue" costs an old tree and a
+ * wrong "fresh" drops work.
  */
-async function ownWork(into: string): Promise<boolean> {
-  const committer = await committerOf("FETCH_HEAD", into);
-  return committer === undefined || committer === COMMITTER.email;
+async function workToContinue(
+  url: string,
+  repo: NonNullable<WorkspaceInput["repo"]>,
+  into: string,
+): Promise<string | undefined> {
+  const tip = await commitAt("FETCH_HEAD", into);
+  // Nothing to check out and nothing to hold a lease on. The fetch reported
+  // success, so this is not a case git has ever shown us; starting fresh is the
+  // only answer that still leaves the Stage somewhere to work.
+  if (!tip) return undefined;
+
+  // The exit code is ignored, as it was where this fetch used to live:
+  // `--deepen` against a clone that is not shallow does nothing, which is every
+  // origin reached over a plain path.
+  await git(["fetch", "--deepen", String(BASE_DEPTH), url, repo.baseBranch, repo.branch], into);
+
+  return (await aheadOf(BASE_REF, tip, into)) === 0 ? undefined : tip;
 }
 
 /**
@@ -301,14 +322,15 @@ const BASE_DEPTH = 200;
  *
  * Moving the ref rather than changing the diff means `commitsSince` is corrected
  * by the same act, so the pull request body and the diff cannot disagree.
+ *
+ * The history this needs is already here: `workToContinue` deepened the base by
+ * `BASE_DEPTH` to decide the branch was worth continuing at all, and only a
+ * branch it continued reaches this.
  */
 async function stampForkPoint(
-  url: string,
   repo: NonNullable<WorkspaceInput["repo"]>,
   into: string,
 ): Promise<void> {
-  await git(["fetch", "--deepen", String(BASE_DEPTH), url, repo.baseBranch, repo.branch], into);
-
   const fork = await mergeBase(BASE_REF, "HEAD", into);
   if (!fork) {
     // Never a wrong diff. A reviewer shown the base's work as deletions fails a
