@@ -18,7 +18,7 @@ import {
   committerOf,
   diffSince,
   git,
-  LEASE_REF
+  LEASE_REF,
   mergeBase,
   skipWorktree,
   trackedUnder,
