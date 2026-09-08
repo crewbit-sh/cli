@@ -1,7 +1,10 @@
+import { readFileSync } from "node:fs";
 import { parseArgs } from "node:util";
 import { createLogger, errorFields } from "../log.ts";
 
 export const RUN_USAGE = `  --reason <text>    why, for \`reject\`, and it is what the next plan reads
+  --data <json>      the answer itself, for \`answer\`, as a JSON object
+  --file <path>      the same answer read from a file instead of the command line
   --token <token>    credential minted on the server's credentials page, or $CREWBIT_TOKEN
   --server <url>     where the Run lives (default https://app.crewbit.sh)
   --output <format>  ai_agent (default) or json, the response's own body
@@ -340,22 +343,34 @@ export async function runRun(argv: string[]): Promise<void> {
       limit: { type: "string" },
       reason: { type: "string" },
       artifact: { type: "string" },
+      data: { type: "string" },
+      file: { type: "string" },
     },
   });
 
   const log = createLogger("crewbit-run");
   const [verb, id] = positionals;
   const GATES: Gate[] = ["approve", "reject", "replan"];
+  // `now` is the word on the command line and `run-now` the route: `crewbit run
+  // run-now` would say the noun twice, and the server's path is not negotiable.
+  const ACTIONS: Record<string, RunAction> = {
+    answer: "answer",
+    cancel: "cancel",
+    judge: "judge",
+    now: "run-now",
+  };
 
   // `crewbit run <id>` was the whole command in v0.5.0 and is gone. An id is not
   // a verb, so it is named back rather than read as one: reading it as a verb
   // would answer "no Run id given" for somebody who gave exactly that.
   const gate = GATES.find((one) => one === verb);
-  if (verb !== "view" && verb !== "list" && !gate) {
+  const action = verb === undefined ? undefined : ACTIONS[verb];
+  if (verb !== "view" && verb !== "list" && !gate && !action) {
     // The exact form and not only the verb list. `crewbit run <id>` was the
     // whole command in v0.5.0, so the commonest way to land here is an id where
     // a verb goes, and that person needs the line to type rather than a menu.
-    const forms = `\`crewbit run view <id>\`, and the verbs are view, list, ${GATES.join(", ")}`;
+    const verbs = ["view", "list", ...GATES, ...Object.keys(ACTIONS)].join(", ");
+    const forms = `\`crewbit run view <id>\`, and the verbs are ${verbs}`;
     log.error(
       verb ? `no "${verb}" here: reading one Run is ${forms}` : `nothing asked: it is ${forms}`,
     );
@@ -378,6 +393,36 @@ export async function runRun(argv: string[]): Promise<void> {
     process.exit(1);
   }
 
+  // The answer, before anything is sent: a `--data` that is a list or a bare
+  // string is a typo, and being told so by the server costs a round trip.
+  let data: Record<string, unknown> | undefined;
+  if (verb === "answer") {
+    if (values.data !== undefined && values.file !== undefined) {
+      log.error("pass one of --data or --file, not both: they are the same answer twice");
+      process.exit(1);
+    }
+    let text: string;
+    if (values.data !== undefined) {
+      text = values.data;
+    } else if (values.file !== undefined) {
+      try {
+        text = readFileSync(values.file, "utf8");
+      } catch (cause) {
+        log.error(`could not read ${values.file}`, errorFields(cause));
+        process.exit(1);
+      }
+    } else {
+      log.error('no answer given: pass --data \'{"choice":"…"}\' or --file answer.json');
+      process.exit(1);
+    }
+    const parsed = parseAnswerData(text as string);
+    if (!parsed.ok) {
+      log.error(parsed.message);
+      process.exit(1);
+    }
+    data = parsed.data;
+  }
+
   let events: number | undefined;
   if (values.events !== undefined) {
     events = Number(values.events);
@@ -396,13 +441,15 @@ export async function runRun(argv: string[]): Promise<void> {
     }
   }
 
-  let result: FetchRunResult | FetchRunsResult | GateResult;
+  let result: FetchRunResult | FetchRunsResult | GateResult | ActionResult;
   try {
     result = gate
       ? await answerGate(values.server, id as string, gate, token, { reason: values.reason })
-      : verb === "list"
-        ? await fetchRuns(values.server, token, { limit })
-        : await fetchRun(values.server, id as string, token, { events });
+      : action
+        ? await actOnRun(values.server, id as string, action, token, { data })
+        : verb === "list"
+          ? await fetchRuns(values.server, token, { limit })
+          : await fetchRun(values.server, id as string, token, { events });
   } catch (cause) {
     log.error("could not reach the server", { url: values.server, ...errorFields(cause) });
     process.exit(1);
@@ -429,6 +476,8 @@ export async function runRun(argv: string[]): Promise<void> {
   }
   if (gate) {
     console.log(renderAnswered(gate, id as string));
+  } else if (action) {
+    console.log(renderRunState(result.body as RunAck, id));
   } else if (verb === "list") {
     console.log(renderRuns((result.body as { runs: RunView[] }).runs));
   } else {
