@@ -74,6 +74,26 @@ async function originRepo(extra: Record<string, string> = {}): Promise<{
   return { url: dir, branch: "main" };
 }
 
+/** Who the runner commits as, and the only identity these branches carry. */
+const RUNNER = "crewbit@users.noreply.github.com";
+
+/**
+ * A commit made the way the runner makes one.
+ *
+ * A branch a Stage continues was written by the runner and by nothing else, so a
+ * fixture standing for one has to be committed under that identity. `seed`'s
+ * `test@example.test` is somebody else, and a branch whose tip is somebody
+ * else's is a different case entirely.
+ */
+async function commitAsRunner(dir: string, message: string): Promise<void> {
+  await run("git", ["add", "."], dir);
+  await run(
+    "git",
+    ["-c", `user.email=${RUNNER}`, "-c", "user.name=crewbit", "commit", "-qm", message],
+    dir,
+  );
+}
+
 function run(command: string, args: string[], cwd: string): Promise<number> {
   return new Promise((resolve) => {
     const child = spawn(command, args, { cwd, stdio: "ignore" });
@@ -400,8 +420,7 @@ describe("a base branch that moved after the work branch was cut", () => {
     const origin = await originRepo();
     await run("git", ["checkout", "-q", "-b", "crewbit/spec-1"], origin.url);
     writeFileSync(join(origin.url, "mine.ts"), "export const mine = 1;\n");
-    await run("git", ["add", "."], origin.url);
-    await run("git", ["commit", "-qm", "the change"], origin.url);
+    await commitAsRunner(origin.url, "the change");
 
     await run("git", ["checkout", "-q", "main"], origin.url);
     for (const n of [1, 2, 3]) {
@@ -482,8 +501,7 @@ describe("a stage that reads the work without delivering any", () => {
     const origin = await originRepo();
     await run("git", ["checkout", "-q", "-b", "crewbit/spec-1"], origin.url);
     writeFileSync(join(origin.url, "mine.ts"), "export const mine = 1;\n");
-    await run("git", ["add", "."], origin.url);
-    await run("git", ["commit", "-qm", "the change"], origin.url);
+    await commitAsRunner(origin.url, "the change");
     await run("git", ["checkout", "-q", "main"], origin.url);
 
     const workspace = await prepareWorkspace({
