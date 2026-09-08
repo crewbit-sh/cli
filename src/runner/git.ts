@@ -119,6 +119,22 @@ export async function mergeBase(a: string, b: string, cwd: string): Promise<stri
 }
 
 /**
+ * The email of whoever committed a ref, or undefined when git could not say.
+ *
+ * Local: it reads objects that are already in the clone, so asking it about
+ * `FETCH_HEAD` costs nothing beyond the fetch that produced it. That is the
+ * whole reason the answer is the committer of the tip rather than a count of
+ * commits, which a `--depth 1` clone cannot reach without deepening the base.
+ *
+ * Undefined rather than an empty string, because the caller has to tell "the
+ * committer is somebody else" from "there was no answer": only the first is
+ * grounds for acting.
+ */
+export async function committerOf(ref: string, cwd: string): Promise<string | undefined> {
+  return (await capture(["log", "-1", "--format=%ce", ref], cwd)) || undefined;
+}
+
+/**
  * What this branch changed against the base it started from.
  *
  * `git diff A B` compares two trees and does not need the history between them,
