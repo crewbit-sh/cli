@@ -158,6 +158,15 @@ describe("what the binary is asked to do", () => {
     expect(`${out}${err}`).toContain("acme/api#12");
   });
 
+  test("`spec run` with no reference says the exact form it wants", async () => {
+    // The verb it is, and not `plan`'s form: the unknown-verb message names
+    // that one, so a wrong hint here would read as a right one.
+    const { code, out, err } = await run("spec", "run");
+
+    expect(code).toBe(1);
+    expect(`${out}${err}`).toContain("crewbit spec run acme/api#12");
+  });
+
   test("`spec` with no verb names the ones it has", async () => {
     const { code, out, err } = await run("spec");
 
@@ -208,6 +217,7 @@ describe("what the binary is asked to do", () => {
     expect(out).toContain("crewbit project view <id>");
     expect(out).toContain("crewbit spec list");
     expect(out).toContain("crewbit spec plan");
+    expect(out).toContain("crewbit spec run");
   });
 
   test("`run view <id>` refuses --events that is not a non-negative whole number", async () => {

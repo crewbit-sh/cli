@@ -6,6 +6,7 @@ import {
   planSpec,
   renderPlanned,
   renderSpecs,
+  runSpecNow,
 } from "./spec.ts";
 
 describe("reading a Project's Specs off the server", () => {
@@ -151,5 +152,82 @@ describe("what a started Run prints", () => {
     // The route answers `{ runId: undefined }` for an outcome that succeeded
     // without one rather than pretending it failed.
     expect(renderPlanned({})).not.toContain("undefined");
+  });
+});
+
+describe("running one Spec straight through", () => {
+  test("posts the reference to the server's own run route, with the credential as a bearer", async () => {
+    const asked: Array<{ url: string; init: RequestInit }> = [];
+    const send: Fetch = async (url, init) => {
+      asked.push({ url, init });
+      return { ok: true, json: async () => ({ runId: "run_1", state: "planning" }) } as Response;
+    };
+
+    await runSpecNow("https://app.crewbit.sh", "acme/api#12", "crw_abc", { send });
+
+    expect(asked[0]?.url).toBe("https://app.crewbit.sh/api/specs/run");
+    expect(asked[0]?.init.method).toBe("POST");
+    expect(asked[0]?.init.headers).toEqual({
+      "content-type": "application/json",
+      authorization: "Bearer crw_abc",
+    });
+    expect(JSON.parse(String(asked[0]?.init.body))).toEqual({ spec: "acme/api#12" });
+  });
+
+  test("passes a reference through untouched, so an id works where a pair does", async () => {
+    // `spec plan` splits nothing either: one rule about where the `#` is, and it
+    // lives on the server.
+    const asked: RequestInit[] = [];
+    const send: Fetch = async (_url, init) => {
+      asked.push(init);
+      return { ok: true, json: async () => ({}) } as Response;
+    };
+
+    await runSpecNow("s", "spec_abc123", "t", { send });
+
+    expect(JSON.parse(String(asked[0]?.body))).toEqual({ spec: "spec_abc123" });
+  });
+
+  test("a trailing slash on the server does not double up", async () => {
+    const asked: string[] = [];
+    const send: Fetch = async (url) => {
+      asked.push(url);
+      return { ok: true, json: async () => ({}) } as Response;
+    };
+
+    await runSpecNow("https://app.crewbit.sh/", "a/b#1", "t", { send });
+
+    expect(asked).toEqual(["https://app.crewbit.sh/api/specs/run"]);
+  });
+
+  test("carries the Run the server started back", async () => {
+    const send: Fetch = async () =>
+      ({
+        ok: true,
+        status: 200,
+        statusText: "",
+        json: async () => ({ runId: "run_1", state: "planning" }),
+      }) as Response;
+
+    expect(await runSpecNow("s", "a/b#1", "t", { send })).toEqual({
+      ok: true,
+      body: { runId: "run_1", state: "planning" },
+    });
+  });
+
+  test("a refusal carries the server's words, which is the whole answer", async () => {
+    const send: Fetch = async () =>
+      ({
+        ok: false,
+        status: 409,
+        statusText: "",
+        text: async () => "blocked: this Spec waits on one Spec that has not landed",
+      }) as Response;
+
+    expect(await runSpecNow("s", "a/b#1", "t", { send })).toEqual({
+      ok: false,
+      status: 409,
+      reason: "blocked: this Spec waits on one Spec that has not landed",
+    });
   });
 });

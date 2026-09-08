@@ -1,5 +1,6 @@
 import { parseArgs } from "node:util";
 import { createLogger, errorFields } from "../log.ts";
+import { type RunAck, renderRunState } from "./run.ts";
 
 export const SPEC_USAGE = `  --project <id>     which Project's Specs, for \`list\`, from \`crewbit project list\`
   --token <token>    credential minted on the server's credentials page, or $CREWBIT_TOKEN
@@ -40,6 +41,30 @@ export type PlanResult =
   | { ok: false; status: number; reason: string };
 
 /**
+ * One POST under `/api/specs`, carrying the reference as the person typed it.
+ * Splitting it is the server's rule and not this package's, so `plan` and `run`
+ * differ in the route and in nothing else.
+ */
+async function postSpec(
+  server: string,
+  route: string,
+  ref: string,
+  token: string,
+  send: Fetch,
+): Promise<{ ok: true; body: unknown } | { ok: false; status: number; reason: string }> {
+  const response = await send(`${server.replace(/\/+$/, "")}/api/specs/${route}`, {
+    method: "POST",
+    headers: { "content-type": "application/json", authorization: `Bearer ${token}` },
+    body: JSON.stringify({ spec: ref }),
+  });
+  if (!response.ok) {
+    const reason = await response.text().catch(() => response.statusText);
+    return { ok: false, status: response.status, reason };
+  }
+  return { ok: true, body: await response.json() };
+}
+
+/**
  * Starting a Run for one Spec. The reference is passed through as the person
  * typed it and split on the server, so the two do not each own half of a rule
  * about where the `#` is.
@@ -51,16 +76,28 @@ export async function planSpec(
   options: { send?: Fetch } = {},
 ): Promise<PlanResult> {
   const { send = fetch } = options;
-  const response = await send(`${server.replace(/\/+$/, "")}/api/specs/plan`, {
-    method: "POST",
-    headers: { "content-type": "application/json", authorization: `Bearer ${token}` },
-    body: JSON.stringify({ spec: ref }),
-  });
-  if (!response.ok) {
-    const reason = await response.text().catch(() => response.statusText);
-    return { ok: false, status: response.status, reason };
-  }
-  return { ok: true, body: (await response.json()) as { runId?: string } };
+  const result = await postSpec(server, "plan", ref, token, send);
+  return result.ok ? { ok: true, body: result.body as { runId?: string } } : result;
+}
+
+export type SpecRunResult =
+  | { ok: true; body: RunAck }
+  | { ok: false; status: number; reason: string };
+
+/**
+ * The fast path: the same Spec `plan` would resolve, driven from the start
+ * rather than stopping to be planned. What comes back is the Run, so it prints
+ * the way the four verbs under `crewbit run` do.
+ */
+export async function runSpecNow(
+  server: string,
+  ref: string,
+  token: string,
+  options: { send?: Fetch } = {},
+): Promise<SpecRunResult> {
+  const { send = fetch } = options;
+  const result = await postSpec(server, "run", ref, token, send);
+  return result.ok ? { ok: true, body: result.body as RunAck } : result;
 }
 
 export function renderPlanned(body: { runId?: string }): string {
@@ -114,9 +151,9 @@ export async function runSpec(argv: string[]): Promise<void> {
   const log = createLogger("crewbit-spec");
   const [verb, ref] = positionals;
 
-  if (verb !== "list" && verb !== "plan") {
+  if (verb !== "list" && verb !== "plan" && verb !== "run") {
     log.error(
-      `no "${verb ?? ""}" here: it is \`crewbit spec list --project <id>\` or \`crewbit spec plan acme/api#12\``,
+      `no "${verb ?? ""}" here: it is \`crewbit spec list --project <id>\`, \`crewbit spec plan acme/api#12\` or \`crewbit spec run acme/api#12\``,
     );
     process.exit(1);
   }
@@ -124,8 +161,10 @@ export async function runSpec(argv: string[]): Promise<void> {
     log.error("no Project given: pass --project <id>, which `crewbit project list` prints");
     process.exit(1);
   }
-  if (verb === "plan" && !ref) {
-    log.error("no Spec given: pass `crewbit spec plan acme/api#12`, the pair `spec list` prints");
+  if (verb !== "list" && !ref) {
+    log.error(
+      `no Spec given: pass \`crewbit spec ${verb} acme/api#12\`, the pair \`spec list\` prints`,
+    );
     process.exit(1);
   }
 
@@ -140,12 +179,14 @@ export async function runSpec(argv: string[]): Promise<void> {
     process.exit(1);
   }
 
-  let result: FetchSpecsResult | PlanResult;
+  let result: FetchSpecsResult | PlanResult | SpecRunResult;
   try {
     result =
       verb === "list"
         ? await fetchSpecs(values.server, values.project as string, token)
-        : await planSpec(values.server, ref as string, token);
+        : verb === "run"
+          ? await runSpecNow(values.server, ref as string, token)
+          : await planSpec(values.server, ref as string, token);
   } catch (cause) {
     log.error("could not reach the server", { url: values.server, ...errorFields(cause) });
     process.exit(1);
@@ -163,6 +204,8 @@ export async function runSpec(argv: string[]): Promise<void> {
   console.log(
     verb === "list"
       ? renderSpecs((result.body as { sources: Listed[] }).sources)
-      : renderPlanned(result.body as { runId?: string }),
+      : verb === "run"
+        ? renderRunState(result.body as RunAck)
+        : renderPlanned(result.body as { runId?: string }),
   );
 }
