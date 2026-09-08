@@ -6,6 +6,17 @@ Upgrading is replacing the binary and starting it again. Stop the old one once
 and it finishes what it is holding before it exits, so an upgrade costs you
 nothing that was in flight. Stop it a second time and it exits straight away.
 
+## 0.9.0
+
+### Added
+
+- a continued branch pushes with a lease on the tip it fetched (#24)
+- git can say who committed a ref (#20)
+
+### Fixed
+
+- a sanitised checkout reads as no change to git
+
 ## 0.8.7
 
 ### Fixed
