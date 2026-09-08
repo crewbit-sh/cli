@@ -13,7 +13,17 @@ import { tmpdir } from "node:os";
 import { dirname, resolve, sep } from "node:path";
 import type { JobAssignParams } from "@crewbit/protocol";
 import type { Logger } from "../log.ts";
-import { BASE_REF, committerOf, diffSince, git, LEASE_REF, mergeBase, withToken } from "./git.ts";
+import {
+  BASE_REF,
+  committerOf,
+  diffSince,
+  git,
+  LEASE_REF
+  mergeBase,
+  skipWorktree,
+  trackedUnder,
+  withToken,
+} from "./git.ts";
 
 export type WorkspaceInput = {
   context: Record<string, string>;
@@ -205,6 +215,15 @@ async function ownWork(into: string): Promise<boolean> {
  * the rules without loading the rest of `.claude/` too — both come from the
  * same source — so the checkout is sanitised on disk instead, right after the
  * clone and before anything reads it.
+ *
+ * **Out of the worktree and out of the index's view at once.** Removed from the
+ * worktree alone they stay tracked, so git reports every one of them as a
+ * deletion: `git status` in the workspace is dirty, a code stage that stages
+ * with `git add -A` or commits with `-a` commits the deletions, and the pull
+ * request then deletes the repository's own agents, skills and settings. One
+ * Run's diff was 48 files for a change of 4. `--skip-worktree` on each removed
+ * path is git being told not to look, so the removal never reads as a change,
+ * and the engine still sees none of it — exactly as this was meant to work.
  */
 const CLAUDE_KEEP = new Set(["rules", "CLAUDE.md"]);
 
@@ -227,6 +246,25 @@ async function sanitizeClaudeConfig(
   if (await exists(mcpConfig)) {
     await rm(mcpConfig, { force: true });
     removed.push(".mcp.json");
+  }
+
+  // The index entries under what was just removed, which only git can name:
+  // the removals above are directories and `update-index` takes files. Read
+  // from the index, so the answer is the same before or after the `rm`. Empty
+  // means there was nothing tracked to strip, and then git is not called at
+  // all — the repository that carries none of this is untouched.
+  const tracked = await trackedUnder(workspace, removed);
+  if (tracked.length > 0) {
+    const marked = await skipWorktree(workspace, tracked);
+    if (marked.code !== 0) {
+      // Never a silent fallback. Carrying on here is the bug this exists to
+      // stop: a Job that delivers a pull request deleting the repository's own
+      // agents, skills and settings.
+      throw new Error(
+        `could not hide ${tracked.length} removed path(s) from git (git exited ${marked.code})` +
+          (marked.stderr ? `\n${marked.stderr}` : ""),
+      );
+    }
   }
 
   // Only when there was something to say: the ordinary Job clones a repository
