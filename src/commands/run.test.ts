@@ -1,14 +1,17 @@
 import { describe, expect, test } from "bun:test";
 import {
+  actOnRun,
   answerGate,
   type Fetch,
   fetchRun,
   fetchRuns,
+  parseAnswerData,
   pickArtifact,
   type RunProjection,
   type RunView,
   renderAiAgent,
   renderAnswered,
+  renderRunState,
   renderRuns,
 } from "./run.ts";
 
@@ -421,5 +424,169 @@ describe("what an answered gate prints", () => {
     const printed = renderAnswered("replan", "run_1");
 
     expect(printed).not.toMatch(/approv/i);
+  });
+});
+
+describe("acting on a Run", () => {
+  test("`answer` posts the data object under the Run, with the credential as a bearer token", async () => {
+    const asked: Array<{ url: string; init: RequestInit }> = [];
+    const send: Fetch = async (url, init) => {
+      asked.push({ url, init });
+      return { ok: true, json: async () => ({ runId: "run_1", state: "planning" }) } as Response;
+    };
+
+    await actOnRun("https://app.crewbit.sh", "run_1", "answer", "crw_abc", {
+      data: { choice: "the second one" },
+      send,
+    });
+
+    expect(asked[0]?.url).toBe("https://app.crewbit.sh/api/runs/run_1/answer");
+    expect(asked[0]?.init.method).toBe("POST");
+    expect(asked[0]?.init.headers).toEqual({
+      "content-type": "application/json",
+      authorization: "Bearer crw_abc",
+    });
+    expect(JSON.parse(String(asked[0]?.init.body))).toEqual({ choice: "the second one" });
+  });
+
+  test("`cancel` posts to the Run's own cancel route, with no data to carry", async () => {
+    const asked: Array<{ url: string; init: RequestInit }> = [];
+    const send: Fetch = async (url, init) => {
+      asked.push({ url, init });
+      return { ok: true, json: async () => ({ runId: "run_1", state: "cancelled" }) } as Response;
+    };
+
+    await actOnRun("s", "run_1", "cancel", "t", { send });
+
+    expect(asked[0]?.url).toBe("s/api/runs/run_1/cancel");
+    expect(asked[0]?.init.method).toBe("POST");
+    expect(JSON.parse(String(asked[0]?.init.body))).toEqual({});
+  });
+
+  test("`judge` posts to the Run's own judge route", async () => {
+    const asked: string[] = [];
+    const send: Fetch = async (url) => {
+      asked.push(url);
+      return { ok: true, json: async () => ({ runId: "run_1", state: "evaluating" }) } as Response;
+    };
+
+    await actOnRun("s", "run_1", "judge", "t", { send });
+
+    expect(asked).toEqual(["s/api/runs/run_1/judge"]);
+  });
+
+  test("`now` is `run-now` on the wire, which is the route the server documents", async () => {
+    const asked: string[] = [];
+    const send: Fetch = async (url) => {
+      asked.push(url);
+      return { ok: true, json: async () => ({ runId: "run_1", state: "coding" }) } as Response;
+    };
+
+    await actOnRun("s", "run_1", "run-now", "t", { send });
+
+    expect(asked).toEqual(["s/api/runs/run_1/run-now"]);
+  });
+
+  test("an id with a character that needs escaping stays one path segment", async () => {
+    const asked: string[] = [];
+    const send: Fetch = async (url) => {
+      asked.push(url);
+      return { ok: true, json: async () => ({}) } as Response;
+    };
+
+    await actOnRun("s", "a/b", "cancel", "t", { send });
+
+    expect(asked).toEqual(["s/api/runs/a%2Fb/cancel"]);
+  });
+
+  test("a trailing slash on the server does not double up", async () => {
+    const asked: string[] = [];
+    const send: Fetch = async (url) => {
+      asked.push(url);
+      return { ok: true, json: async () => ({}) } as Response;
+    };
+
+    await actOnRun("https://app.crewbit.sh/", "run_1", "judge", "t", { send });
+
+    expect(asked).toEqual(["https://app.crewbit.sh/api/runs/run_1/judge"]);
+  });
+
+  test("carries the body back on success", async () => {
+    const result = await actOnRun("s", "run_1", "cancel", "t", {
+      send: answering({ runId: "run_1", state: "cancelled" }),
+    });
+
+    expect(result).toEqual({ ok: true, body: { runId: "run_1", state: "cancelled" } });
+  });
+
+  test("a refusal carries the server's words, which say what to do next", async () => {
+    const send: Fetch = async () =>
+      ({
+        ok: false,
+        status: 409,
+        statusText: "",
+        text: async () => "nothing is waiting on an answer",
+      }) as Response;
+
+    expect(await actOnRun("s", "run_1", "answer", "t", { data: {}, send })).toEqual({
+      ok: false,
+      status: 409,
+      reason: "nothing is waiting on an answer",
+    });
+  });
+});
+
+describe("what an acted-on Run prints", () => {
+  test("names the Run and the state the server says it is in now", () => {
+    expect(renderRunState({ runId: "run_1", state: "cancelled" })).toContain("run_1");
+    expect(renderRunState({ runId: "run_1", state: "cancelled" })).toContain("cancelled");
+  });
+
+  test("reads `id` as well, so a body that names it either way is understood", () => {
+    expect(renderRunState({ id: "run_2", state: "coding" })).toContain("run_2");
+  });
+
+  test("falls back to the id that was asked about when the body names none", () => {
+    expect(renderRunState({ state: "coding" }, "run_3")).toContain("run_3");
+  });
+
+  test("says the server named no state rather than printing an empty one", () => {
+    const printed = renderRunState({ runId: "run_1" });
+
+    expect(printed).toContain("run_1");
+    expect(printed).toMatch(/no state/i);
+  });
+});
+
+describe("the answer a `run answer` carries", () => {
+  test("a JSON object is what an answer is, and comes back parsed", () => {
+    expect(parseAnswerData('{"choice":"a"}')).toEqual({ ok: true, data: { choice: "a" } });
+  });
+
+  test("an array is not an object, and is named as such", () => {
+    const parsed = parseAnswerData("[1]");
+
+    expect(parsed.ok).toBe(false);
+    expect(parsed.ok === false && parsed.message).toMatch(/object/i);
+  });
+
+  test("null is not an object either, however much JSON thinks so", () => {
+    expect(parseAnswerData("null").ok).toBe(false);
+  });
+
+  test("a bare string or number is refused", () => {
+    expect(parseAnswerData('"yes"').ok).toBe(false);
+    expect(parseAnswerData("12").ok).toBe(false);
+  });
+
+  test("something that is not JSON at all says so rather than throwing", () => {
+    const parsed = parseAnswerData("{not json");
+
+    expect(parsed.ok).toBe(false);
+    expect(parsed.ok === false && parsed.message).toMatch(/json/i);
+  });
+
+  test("an empty object is a legitimate answer, and is not read as nothing given", () => {
+    expect(parseAnswerData("{}")).toEqual({ ok: true, data: {} });
   });
 });

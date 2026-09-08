@@ -68,6 +68,33 @@ export type GateResult =
   | { ok: false; status: number; reason: string };
 
 /**
+ * One POST under one Run, which is the whole shape of every command that acts
+ * on one: a route off `/api/runs/:id`, a JSON body, and the same credential the
+ * runner already dials the socket with. `answerGate` and `actOnRun` differ only
+ * in what they put in the body and what they print, so they share this.
+ */
+async function postToRun(
+  server: string,
+  id: string,
+  route: string,
+  token: string,
+  body: Record<string, unknown>,
+  send: Fetch,
+): Promise<{ ok: true; body: unknown } | { ok: false; status: number; reason: string }> {
+  const url = `${server.replace(/\/+$/, "")}/api/runs/${encodeURIComponent(id)}/${route}`;
+  const response = await send(url, {
+    method: "POST",
+    headers: { "content-type": "application/json", authorization: `Bearer ${token}` },
+    body: JSON.stringify(body),
+  });
+  if (!response.ok) {
+    const text = await response.text().catch(() => response.statusText);
+    return { ok: false, status: response.status, reason: text };
+  }
+  return { ok: true, body: await response.json() };
+}
+
+/**
  * Answering the plan gate. The decision is still a person's; this is only where
  * they press it, and until now the only place was a browser.
  */
@@ -79,17 +106,77 @@ export async function answerGate(
   options: { reason?: string; send?: Fetch } = {},
 ): Promise<GateResult> {
   const { reason, send = fetch } = options;
-  const url = `${server.replace(/\/+$/, "")}/api/runs/${encodeURIComponent(id)}/${gate}`;
-  const response = await send(url, {
-    method: "POST",
-    headers: { "content-type": "application/json", authorization: `Bearer ${token}` },
-    body: JSON.stringify(reason === undefined ? {} : { reason }),
-  });
-  if (!response.ok) {
-    const text = await response.text().catch(() => response.statusText);
-    return { ok: false, status: response.status, reason: text };
+  const result = await postToRun(
+    server,
+    id,
+    gate,
+    token,
+    reason === undefined ? {} : { reason },
+    send,
+  );
+  return result.ok ? { ok: true, body: result.body as { runId?: string } } : result;
+}
+
+/**
+ * The verbs that are not the plan gate: the question a stage asked, ending the
+ * Run, judging the review as it stands, and taking the next step without
+ * waiting for whatever would have scheduled it. `now` is `run-now` on the wire,
+ * which is the route `crewbit-v2` documents.
+ */
+export type RunAction = "answer" | "cancel" | "judge" | "run-now";
+
+/** What the server says a Run is after it acted, read defensively: this is its body, not ours. */
+export type RunAck = { runId?: string; id?: string; state?: string };
+
+export type ActionResult =
+  | { ok: true; body: RunAck }
+  | { ok: false; status: number; reason: string };
+
+export async function actOnRun(
+  server: string,
+  id: string,
+  action: RunAction,
+  token: string,
+  options: { data?: Record<string, unknown>; send?: Fetch } = {},
+): Promise<ActionResult> {
+  const { data, send = fetch } = options;
+  const result = await postToRun(server, id, action, token, data ?? {}, send);
+  return result.ok ? { ok: true, body: result.body as RunAck } : result;
+}
+
+/**
+ * The line all five of these print: which Run, and what the server says it is
+ * now. The id is echoed from the request when the body names none, so `cancel`
+ * on a route that answers with nothing still says what was cancelled.
+ */
+export function renderRunState(body: RunAck, asked?: string): string {
+  const id = body.runId ?? body.id ?? asked ?? "the Run";
+  return `${id}: ${body.state ?? "the server named no state"}`;
+}
+
+export type ParsedAnswer =
+  | { ok: true; data: Record<string, unknown> }
+  | { ok: false; message: string };
+
+/**
+ * An answer is a JSON object, and it is checked here rather than by the server,
+ * because a `--data` that is a list or a bare string is a typo and a round trip
+ * to be told so is a round trip wasted.
+ */
+export function parseAnswerData(text: string): ParsedAnswer {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text);
+  } catch (cause) {
+    return {
+      ok: false,
+      message: `--data is not JSON: ${cause instanceof Error ? cause.message : String(cause)}`,
+    };
   }
-  return { ok: true, body: (await response.json()) as { runId?: string } };
+  if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
+    return { ok: false, message: '--data wants a JSON object, as \'{"choice":"the second one"}\'' };
+  }
+  return { ok: true, data: parsed as Record<string, unknown> };
 }
 
 /** What happens next, which nothing else is going to say on a terminal. */
