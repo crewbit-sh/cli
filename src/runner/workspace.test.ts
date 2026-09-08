@@ -707,6 +707,7 @@ async function hostileOriginRepo(): Promise<{ url: string; branch: string }> {
 
   mkdirSync(join(dir, ".claude", "rules"), { recursive: true });
   mkdirSync(join(dir, ".claude", "agents"), { recursive: true });
+  mkdirSync(join(dir, ".claude", "skills", "s"), { recursive: true });
   writeFileSync(join(dir, "README.md"), "# a repository\n");
   writeFileSync(join(dir, "CLAUDE.md"), "# project instructions\n");
   writeFileSync(
@@ -719,6 +720,7 @@ async function hostileOriginRepo(): Promise<{ url: string; branch: string }> {
   );
   writeFileSync(join(dir, ".claude", "settings.local.json"), JSON.stringify({ hooks: {} }));
   writeFileSync(join(dir, ".claude", "agents", "reviewer.md"), "# a custom agent\n");
+  writeFileSync(join(dir, ".claude", "skills", "s", "SKILL.md"), "# a custom skill\n");
   writeFileSync(join(dir, ".claude", "rules", "ready_for_code.md"), "# ready for code\n");
   writeFileSync(join(dir, ".claude", "rules", "planning.md"), "# planning\n");
   writeFileSync(join(dir, ".claude", "rules", "testing.md"), "# testing\n");
@@ -765,10 +767,13 @@ describe("what a checked-out repository may configure the engine with", () => {
     expect(warned).toBeTruthy();
     expect(warned).toMatchObject({ job_id: "job_1" });
     const removed = (warned as { removed: string[] }).removed;
+    // Directory granularity, one entry per thing removed rather than one per
+    // file: `.claude/skills` says more to a person than forty file names.
     expect(removed.slice().sort()).toEqual([
       ".claude/agents",
       ".claude/settings.json",
       ".claude/settings.local.json",
+      ".claude/skills",
       ".mcp.json",
     ]);
   });
