@@ -401,21 +401,20 @@ export async function runRun(argv: string[]): Promise<void> {
       log.error("pass one of --data or --file, not both: they are the same answer twice");
       process.exit(1);
     }
-    let text: string;
-    if (values.data !== undefined) {
-      text = values.data;
-    } else if (values.file !== undefined) {
+    let text = values.data;
+    if (text === undefined && values.file !== undefined) {
       try {
         text = readFileSync(values.file, "utf8");
       } catch (cause) {
         log.error(`could not read ${values.file}`, errorFields(cause));
         process.exit(1);
       }
-    } else {
+    }
+    if (text === undefined) {
       log.error('no answer given: pass --data \'{"choice":"…"}\' or --file answer.json');
       process.exit(1);
     }
-    const parsed = parseAnswerData(text as string);
+    const parsed = parseAnswerData(text);
     if (!parsed.ok) {
       log.error(parsed.message);
       process.exit(1);
