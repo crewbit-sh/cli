@@ -144,6 +144,68 @@ describe("what the binary is asked to do", () => {
     expect(`${out}${err}`).toContain("approve");
   });
 
+  test("`run answer` asks for the id before the credential, like the gates do", async () => {
+    const { code, out, err } = await run("run", "answer");
+
+    expect(code).toBe(1);
+    expect(`${out}${err}`).toContain("no Run id given");
+  });
+
+  test("`run answer` with no data at all says which flag to pass", async () => {
+    const { code, out, err } = await run("run", "answer", "run_1", "--token", "t");
+
+    expect(code).toBe(1);
+    expect(`${out}${err}`).toContain("--data");
+    expect(`${out}${err}`).not.toContain("could not reach the server");
+  });
+
+  test("`run answer --data` that is not a JSON object is refused before any request", async () => {
+    // The server is a port nothing listens on, so a request made anyway would
+    // have said it could not be reached. Saying something else is the proof.
+    const { code, out, err } = await run("run", "answer", "run_1", "--token", "t", "--data", "[1]");
+
+    expect(code).toBe(1);
+    expect(`${out}${err}`).toContain("--data wants a JSON object");
+    expect(`${out}${err}`).not.toContain("could not reach the server");
+  });
+
+  test("`run answer --file` that is not there names the file rather than the flag", async () => {
+    const { code, out, err } = await run(
+      "run",
+      "answer",
+      "run_1",
+      "--token",
+      "t",
+      "--file",
+      join(CONFIG_DIR, "nope.json"),
+    );
+
+    expect(code).toBe(1);
+    expect(`${out}${err}`).toContain("nope.json");
+    expect(`${out}${err}`).not.toContain("could not reach the server");
+  });
+
+  test("`run cancel` routes, and asks for the id first", async () => {
+    const { code, out, err } = await run("run", "cancel");
+
+    expect(code).toBe(1);
+    expect(`${out}${err}`).toContain("no Run id given");
+  });
+
+  test("`run judge` routes, and asks for the id first", async () => {
+    const { code, out, err } = await run("run", "judge");
+
+    expect(code).toBe(1);
+    expect(`${out}${err}`).toContain("no Run id given");
+  });
+
+  test("`run now` routes, and asks for the id first", async () => {
+    const { code, out, err } = await run("run", "now");
+
+    expect(code).toBe(1);
+    expect(`${out}${err}`).toContain("no Run id given");
+  });
+
   test("`spec list` routes, and asks for the Project before the credential", async () => {
     const { code, out, err } = await run("spec", "list");
 
@@ -156,6 +218,15 @@ describe("what the binary is asked to do", () => {
 
     expect(code).toBe(1);
     expect(`${out}${err}`).toContain("acme/api#12");
+  });
+
+  test("`spec run` with no reference says the exact form it wants", async () => {
+    // The verb it is, and not `plan`'s form: the unknown-verb message names
+    // that one, so a wrong hint here would read as a right one.
+    const { code, out, err } = await run("spec", "run");
+
+    expect(code).toBe(1);
+    expect(`${out}${err}`).toContain("crewbit spec run acme/api#12");
   });
 
   test("`spec` with no verb names the ones it has", async () => {
@@ -204,10 +275,15 @@ describe("what the binary is asked to do", () => {
     expect(out).toContain("crewbit run reject <id>");
     expect(out).toContain("crewbit run replan <id>");
     expect(out).toContain("crewbit run list");
+    expect(out).toContain("crewbit run answer <id>");
+    expect(out).toContain("crewbit run cancel <id>");
+    expect(out).toContain("crewbit run judge <id>");
+    expect(out).toContain("crewbit run now <id>");
     expect(out).toContain("crewbit project list");
     expect(out).toContain("crewbit project view <id>");
     expect(out).toContain("crewbit spec list");
     expect(out).toContain("crewbit spec plan");
+    expect(out).toContain("crewbit spec run");
   });
 
   test("`run view <id>` refuses --events that is not a non-negative whole number", async () => {

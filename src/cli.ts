@@ -14,6 +14,10 @@ ${RUNNER_USAGE}
   crewbit run reject <id>       send it back, with --reason
   crewbit run replan <id>       plan again from the Spec as it is now
   crewbit run list              the org's live Runs, most recently updated first
+  crewbit run answer <id>       answer the question a stage asked, with --data or --file
+  crewbit run cancel <id>       end the Run now, whatever it was in the middle of
+  crewbit run judge <id>        judge the review as it stands
+  crewbit run now <id>          take the Run's next step without waiting to be scheduled
 ${RUN_USAGE}
 
   crewbit project list          the Projects this credential's org owns
@@ -22,6 +26,7 @@ ${PROJECT_USAGE}
 
   crewbit spec list             the Specs a Project's sources are offering
   crewbit spec plan <ref>       start planning one, as acme/api#12
+  crewbit spec run <ref>        the fast path: start one running, as acme/api#12
 ${SPEC_USAGE}
 
   --version
