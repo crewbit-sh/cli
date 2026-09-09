@@ -151,19 +151,32 @@ export async function mergeBase(a: string, b: string, cwd: string): Promise<stri
 }
 
 /**
- * The email of whoever committed a ref, or undefined when git could not say.
+ * The commit a ref names, or undefined when git could not resolve it.
  *
- * Local: it reads objects that are already in the clone, so asking it about
- * `FETCH_HEAD` costs nothing beyond the fetch that produced it. That is the
- * whole reason the answer is the committer of the tip rather than a count of
- * commits, which a `--depth 1` clone cannot reach without deepening the base.
- *
- * Undefined rather than an empty string, because the caller has to tell "the
- * committer is somebody else" from "there was no answer": only the first is
- * grounds for acting.
+ * The fetched tip has to be read as a sha before anything else fetches, because
+ * `FETCH_HEAD` is rewritten by the next fetch and answers with its first line:
+ * a deepen that names the base branch first therefore turns `FETCH_HEAD` into
+ * the base's tip. A sha read once cannot move under the caller.
  */
-export async function committerOf(ref: string, cwd: string): Promise<string | undefined> {
-  return (await capture(["log", "-1", "--format=%ce", ref], cwd)) || undefined;
+export async function commitAt(ref: string, cwd: string): Promise<string | undefined> {
+  return (await capture(["rev-parse", "--verify", "--quiet", ref], cwd)) || undefined;
+}
+
+/**
+ * How many commits `ref` carries that `base` does not, or undefined when git
+ * could not say.
+ *
+ * Needs the history between the two, so a `--depth 1` clone has to be deepened
+ * first: without it git either fails or answers about a graft point rather than
+ * the base. Undefined rather than zero, because the caller has to tell "this
+ * branch carries nothing" from "there was no answer" — only the first is grounds
+ * for throwing a branch's tip away.
+ */
+export async function aheadOf(base: string, ref: string, cwd: string): Promise<number | undefined> {
+  const out = await capture(["rev-list", "--count", `${base}..${ref}`], cwd);
+  if (out === undefined) return undefined;
+  const count = Number(out);
+  return Number.isInteger(count) ? count : undefined;
 }
 
 /**
