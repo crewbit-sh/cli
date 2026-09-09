@@ -13,7 +13,18 @@ import { tmpdir } from "node:os";
 import { dirname, resolve, sep } from "node:path";
 import type { JobAssignParams } from "@crewbit/protocol";
 import type { Logger } from "../log.ts";
-import { BASE_REF, diffSince, git, mergeBase, withToken } from "./git.ts";
+import {
+  aheadOf,
+  BASE_REF,
+  commitAt,
+  diffSince,
+  git,
+  LEASE_REF,
+  mergeBase,
+  skipWorktree,
+  trackedUnder,
+  withToken,
+} from "./git.ts";
 
 export type WorkspaceInput = {
   context: Record<string, string>;
@@ -111,16 +122,15 @@ async function clone(
   // directions of getting this wrong have happened: the plan stage taking the
   // branch pinned re-planned Specs to an old snapshot, and the eval stage not
   // taking it judged the base against itself.
-  const existing = continues
-    ? (await git(["fetch", "--depth", "1", url, repo.branch], into)).code
-    : 1;
-  const branched =
-    existing === 0
-      ? await git(["checkout", "-q", "-B", repo.branch, "FETCH_HEAD"], into)
-      : // The first round of a Run, where there is nothing to continue. The
-        // branch the server named, always, even for a read-only Stage: a Stage
-        // that commits when it should not have does so somewhere harmless.
-        await git(["checkout", "-q", "-b", repo.branch], into);
+  const fetched =
+    continues && (await git(["fetch", "--depth", "1", url, repo.branch], into)).code === 0;
+  const carriesWork = fetched ? await workToContinue(url, repo, into) : undefined;
+  const branched = carriesWork
+    ? await git(["checkout", "-q", "-B", repo.branch, carriesWork], into)
+    : // The first round of a Run, and the branch that only ever pointed at a
+      // base. The branch the server named, always, even for a read-only Stage:
+      // a Stage that commits when it should not have does so somewhere harmless.
+      await git(["checkout", "-q", "-b", repo.branch], into);
   if (branched.code !== 0) {
     throw new Error(
       `could not check out ${repo.branch} (git exited ${branched.code})` +
@@ -128,9 +138,19 @@ async function clone(
     );
   }
 
+  // What the remote held when this Job fetched, which is the history its push
+  // may replace and nothing more. The sha `workToContinue` read, rather than
+  // `FETCH_HEAD`, which its deepen fetch has since overwritten.
+  //
+  // Only for a branch that was actually continued, and on one that is what
+  // keeps a person's commit: the lease is the tip their commit is on, so the
+  // push fast-forwards it and builds on it rather than replacing it. A branch
+  // started fresh holds no lease and forces over nothing.
+  if (carriesWork) await git(["update-ref", LEASE_REF, carriesWork], into);
+
   // The branch existed, so it was cut from a base that has since moved, and the
   // ref stamped above is the base's tip rather than where this work started.
-  if (existing === 0) await stampForkPoint(url, repo, into);
+  if (carriesWork) await stampForkPoint(repo, into);
 
   // Local to this clone, never global. Without it a commit is attributed to
   // whoever owns the machine, and on a shared runner that is the wrong person.
@@ -153,6 +173,52 @@ async function clone(
 }
 
 /**
+ * The commit to continue the branch from, or undefined to start fresh.
+ *
+ * A branch carries work when it has commits the base does not, whoever
+ * committed them. The committer is not consulted: reading it meant a person's
+ * commit on a factory branch dropped every round before it, and a
+ * coordinator's `chore:` on top of three rounds of the runner's own work sent
+ * the next round back to the base, where its push was refused as a
+ * non-fast-forward with the branch's real work sitting one commit below.
+ *
+ * The count is what a `--depth 1` clone cannot answer — a shallow clone has no
+ * common ancestor with the base — so the deepen happens here, before the
+ * decision, rather than inside `stampForkPoint` after it. It is the same one
+ * fetch a continued round already paid, and a round that found no branch on the
+ * remote never reaches it.
+ *
+ * **The tip is read as a sha first.** `fetch --deepen` writes both refs into
+ * `FETCH_HEAD` and `rev-parse FETCH_HEAD` then answers with the first line, the
+ * base branch's tip: taking `FETCH_HEAD` after the deepen would check out the
+ * base under the branch name and drop the branch's work on every round.
+ *
+ * Deliberately asymmetric, the way reading the committer was. Only a count that
+ * was positively read and is zero starts fresh — the pointer at an old base
+ * #20 was written for, which still starts fresh. A count git could not answer
+ * continues the branch, because a wrong "continue" costs an old tree and a
+ * wrong "fresh" drops work.
+ */
+async function workToContinue(
+  url: string,
+  repo: NonNullable<WorkspaceInput["repo"]>,
+  into: string,
+): Promise<string | undefined> {
+  const tip = await commitAt("FETCH_HEAD", into);
+  // Nothing to check out and nothing to hold a lease on. The fetch reported
+  // success, so this is not a case git has ever shown us; starting fresh is the
+  // only answer that still leaves the Stage somewhere to work.
+  if (!tip) return undefined;
+
+  // The exit code is ignored, as it was where this fetch used to live:
+  // `--deepen` against a clone that is not shallow does nothing, which is every
+  // origin reached over a plain path.
+  await git(["fetch", "--deepen", String(BASE_DEPTH), url, repo.baseBranch, repo.branch], into);
+
+  return (await aheadOf(BASE_REF, tip, into)) === 0 ? undefined : tip;
+}
+
+/**
  * What a checked-out repository may hand the engine, and what it may not.
  *
  * `.claude/rules/**` and `.claude/CLAUDE.md` are project instructions: markdown
@@ -170,6 +236,15 @@ async function clone(
  * the rules without loading the rest of `.claude/` too — both come from the
  * same source — so the checkout is sanitised on disk instead, right after the
  * clone and before anything reads it.
+ *
+ * **Out of the worktree and out of the index's view at once.** Removed from the
+ * worktree alone they stay tracked, so git reports every one of them as a
+ * deletion: `git status` in the workspace is dirty, a code stage that stages
+ * with `git add -A` or commits with `-a` commits the deletions, and the pull
+ * request then deletes the repository's own agents, skills and settings. One
+ * Run's diff was 48 files for a change of 4. `--skip-worktree` on each removed
+ * path is git being told not to look, so the removal never reads as a change,
+ * and the engine still sees none of it — exactly as this was meant to work.
  */
 const CLAUDE_KEEP = new Set(["rules", "CLAUDE.md"]);
 
@@ -194,6 +269,25 @@ async function sanitizeClaudeConfig(
     removed.push(".mcp.json");
   }
 
+  // The index entries under what was just removed, which only git can name:
+  // the removals above are directories and `update-index` takes files. Read
+  // from the index, so the answer is the same before or after the `rm`. Empty
+  // means there was nothing tracked to strip, and then git is not called at
+  // all — the repository that carries none of this is untouched.
+  const tracked = await trackedUnder(workspace, removed);
+  if (tracked.length > 0) {
+    const marked = await skipWorktree(workspace, tracked);
+    if (marked.code !== 0) {
+      // Never a silent fallback. Carrying on here is the bug this exists to
+      // stop: a Job that delivers a pull request deleting the repository's own
+      // agents, skills and settings.
+      throw new Error(
+        `could not hide ${tracked.length} removed path(s) from git (git exited ${marked.code})` +
+          (marked.stderr ? `\n${marked.stderr}` : ""),
+      );
+    }
+  }
+
   // Only when there was something to say: the ordinary Job clones a repository
   // with none of this, and a line on every one of them would bury the Job that
   // actually carried something.
@@ -212,8 +306,11 @@ async function sanitizeClaudeConfig(
  * compute: `.git/shallow` holds both tips and `merge-base` answers with nothing.
  * Two hundred commits of the base covers a Run that stayed open for weeks, and
  * a branch older than that is too stale to continue, which is worth being told
- * rather than papering over. The cost is history for those commits on every fix
- * round, which is the price of a diff that is true.
+ * rather than papering over. The cost is history for those commits on every
+ * round that found a branch on the remote, whether or not it continues it: one
+ * fetch against an 80-turn round, for a diff that is true and a branch's work
+ * that is not thrown away. A first round, with nothing on the remote to fetch,
+ * pays none of it.
  */
 const BASE_DEPTH = 200;
 
@@ -228,14 +325,15 @@ const BASE_DEPTH = 200;
  *
  * Moving the ref rather than changing the diff means `commitsSince` is corrected
  * by the same act, so the pull request body and the diff cannot disagree.
+ *
+ * The history this needs is already here: `workToContinue` deepened the base by
+ * `BASE_DEPTH` to decide the branch was worth continuing at all, and only a
+ * branch it continued reaches this.
  */
 async function stampForkPoint(
-  url: string,
   repo: NonNullable<WorkspaceInput["repo"]>,
   into: string,
 ): Promise<void> {
-  await git(["fetch", "--deepen", String(BASE_DEPTH), url, repo.baseBranch, repo.branch], into);
-
   const fork = await mergeBase(BASE_REF, "HEAD", into);
   if (!fork) {
     // Never a wrong diff. A reviewer shown the base's work as deletions fails a

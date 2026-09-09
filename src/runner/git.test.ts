@@ -4,9 +4,12 @@ import { cpSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } 
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
+  aheadOf,
   alreadyOnRemote,
+  BASE_REF,
   changedFiles,
   commitAll,
+  commitAt,
   commitsSince,
   git,
   head,
@@ -407,6 +410,32 @@ describe("a workspace for work that already started", () => {
     expect(readFileSync(join(workspace, "app.ts"), "utf8")).toContain("42");
   });
 
+  /**
+   * The keepalive pushes this same ref on every tick, so the second push of a
+   * Job is the ordinary case and not a corner. A lease fixed to the tip the
+   * clone fetched is refused with `stale info` from the second push onwards,
+   * which would land tick one, lose every tick after it, and then lose the
+   * delivery of work that is real and one push away.
+   */
+  test("and pushes again after committing again, so every tick after the first still lands", async () => {
+    const origin = bareOrigin();
+    const first = await workspaceOn(origin);
+    writeFileSync(join(first.workspace, "app.ts"), "export const answer = 43;\n");
+    await commitAll(first.workspace, "one");
+    await pushed(first.workspace, first.repo);
+
+    const second = await workspaceOn(origin);
+    writeFileSync(join(second.workspace, "app.ts"), "export const answer = 44;\n");
+    await commitAll(second.workspace, "two");
+    expect((await pushed(second.workspace, second.repo)).ok).toBe(true);
+
+    writeFileSync(join(second.workspace, "app.ts"), "export const answer = 45;\n");
+    await commitAll(second.workspace, "three");
+
+    expect((await pushed(second.workspace, second.repo)).ok).toBe(true);
+    expect(await remoteHead(second.workspace, second.repo)).toBe(await head(second.workspace));
+  });
+
   test("and a second push from the continued workspace lands", async () => {
     const origin = bareOrigin();
     const first = await workspaceOn(origin);
@@ -558,6 +587,52 @@ describe("a stage that only reads", () => {
     // A fix round and a second runner both need this, and it is what the eval
     // reads. Only the reading stages lose it.
     expect(readFileSync(join(second.workspace, "app.ts"), "utf8")).toContain("43");
+  });
+});
+
+describe("how far ahead of the base a ref is", () => {
+  test("is the number of commits for a ref ahead of it, and zero for one behind", async () => {
+    const origin = bareOrigin();
+    const { workspace } = await workspaceOn(origin);
+    for (const answer of [43, 44]) {
+      writeFileSync(join(workspace, "app.ts"), `export const answer = ${answer};\n`);
+      await commitAll(workspace, `work ${answer}`);
+    }
+
+    // The question #20 wanted and could not afford: how many commits does this
+    // ref carry that the base does not.
+    expect(await aheadOf(BASE_REF, "HEAD", workspace)).toBe(2);
+    // And none the other way round: the base is an ancestor of HEAD, so it is
+    // ahead by nothing. Zero is the only answer that starts a Stage fresh.
+    expect(await aheadOf("HEAD", BASE_REF, workspace)).toBe(0);
+  });
+
+  test("is undefined, not zero, for a ref git cannot resolve", async () => {
+    const origin = bareOrigin();
+    const { workspace } = await workspaceOn(origin, "crewbit/brand-new");
+
+    // `FETCH_HEAD` in a clone that never fetched. The caller continues a branch
+    // on "cannot tell" and starts fresh only on a zero it actually read, so the
+    // two must not arrive as the same value.
+    expect(await aheadOf(BASE_REF, "FETCH_HEAD", workspace)).toBeUndefined();
+  });
+});
+
+describe("resolving a ref to the commit it names", () => {
+  test("is the sha git itself reports", async () => {
+    const origin = bareOrigin();
+    const { workspace } = await workspaceOn(origin);
+
+    // The tip is read as a sha before the deepen fetch overwrites `FETCH_HEAD`,
+    // which is why this exists rather than the ref name being carried forward.
+    expect(await commitAt("HEAD", workspace)).toBe(await head(workspace));
+  });
+
+  test("is undefined for a ref git cannot resolve, rather than an empty string", async () => {
+    const origin = bareOrigin();
+    const { workspace } = await workspaceOn(origin, "crewbit/brand-new");
+
+    expect(await commitAt("FETCH_HEAD", workspace)).toBeUndefined();
   });
 });
 

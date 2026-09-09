@@ -18,6 +18,17 @@ type Repo = NonNullable<JobAssignParams["repo"]>;
 export const BASE_REF = "refs/crewbit/base";
 
 /**
+ * What this Job knows the remote to hold on its branch, and the lease its push
+ * carries. Absent means a first round, which holds no lease and forces nothing.
+ *
+ * Stamped by the clone from the tip it fetched, and moved by every push this Job
+ * lands. Never read from the remote at push time: a lease taken just before the
+ * push would agree with whatever is there, which is a blind force wearing a
+ * lease's name.
+ */
+export const LEASE_REF = "refs/crewbit/remote";
+
+/**
  * Pushes the current branch. Reports rather than throws: the caller decides.
  *
  * `stderr` rather than only the verdict, because the caller cannot ask again.
@@ -29,12 +40,33 @@ export async function pushed(
   workspace: string,
   repo: Repo,
 ): Promise<{ ok: boolean; stderr: string }> {
+  const lease = await capture(["rev-parse", "--verify", "--quiet", LEASE_REF], workspace);
+  // Read before the push, so what the lease advances to is what was actually
+  // sent rather than whatever HEAD became while the push was in flight.
+  const sending = lease ? await head(workspace) : undefined;
+
   // The ref is named explicitly on both sides. A push that let git infer the
   // destination is a push that could land somewhere the server did not name.
   const { code, stderr } = await git(
-    ["push", withToken(repo.url, repo.token), `HEAD:refs/heads/${repo.branch}`],
+    [
+      "push",
+      // The lease names the same full ref the destination does. A lease whose
+      // refname does not match the ref being pushed is silently ignored, and the
+      // push then degrades to the plain one this exists to replace.
+      ...(lease ? [`--force-with-lease=refs/heads/${repo.branch}:${lease}`] : []),
+      withToken(repo.url, repo.token),
+      `HEAD:refs/heads/${repo.branch}`,
+    ],
     workspace,
   );
+
+  // The lease is what this Job knows the remote to hold, so a push that landed
+  // moves it. Leaving it at the fetched tip is refused with `stale info` from
+  // the second push onwards, and the keepalive pushes this ref every tick: the
+  // Job would land tick one and then lose every push including its delivery.
+  // Another runner's push in between is still a refusal, which is the point.
+  if (code === 0 && sending) await git(["update-ref", LEASE_REF, sending], workspace);
+
   return { ok: code === 0, stderr };
 }
 
@@ -119,6 +151,35 @@ export async function mergeBase(a: string, b: string, cwd: string): Promise<stri
 }
 
 /**
+ * The commit a ref names, or undefined when git could not resolve it.
+ *
+ * The fetched tip has to be read as a sha before anything else fetches, because
+ * `FETCH_HEAD` is rewritten by the next fetch and answers with its first line:
+ * a deepen that names the base branch first therefore turns `FETCH_HEAD` into
+ * the base's tip. A sha read once cannot move under the caller.
+ */
+export async function commitAt(ref: string, cwd: string): Promise<string | undefined> {
+  return (await capture(["rev-parse", "--verify", "--quiet", ref], cwd)) || undefined;
+}
+
+/**
+ * How many commits `ref` carries that `base` does not, or undefined when git
+ * could not say.
+ *
+ * Needs the history between the two, so a `--depth 1` clone has to be deepened
+ * first: without it git either fails or answers about a graft point rather than
+ * the base. Undefined rather than zero, because the caller has to tell "this
+ * branch carries nothing" from "there was no answer" — only the first is grounds
+ * for throwing a branch's tip away.
+ */
+export async function aheadOf(base: string, ref: string, cwd: string): Promise<number | undefined> {
+  const out = await capture(["rev-list", "--count", `${base}..${ref}`], cwd);
+  if (out === undefined) return undefined;
+  const count = Number(out);
+  return Number.isInteger(count) ? count : undefined;
+}
+
+/**
  * What this branch changed against the base it started from.
  *
  * `git diff A B` compares two trees and does not need the history between them,
@@ -136,6 +197,36 @@ export async function diffSince(workspace: string): Promise<string | undefined> 
  */
 export async function changedFiles(workspace: string): Promise<string | undefined> {
   return capture(["diff", "--name-only", `${BASE_REF}..HEAD`], workspace);
+}
+
+/**
+ * What git tracks under a set of pathspecs, read out of the index.
+ *
+ * The index and not the worktree, which is what makes this answerable after the
+ * files are gone: the caller removes directories wholesale and `skipWorktree`
+ * takes index entries, so the names have to come from git rather than from a
+ * walk of a tree that no longer has them.
+ *
+ * `-z` because a path is bytes: without it git quotes the awkward ones, and a
+ * quoted name is not the name the index holds.
+ */
+export async function trackedUnder(workspace: string, paths: string[]): Promise<string[]> {
+  if (paths.length === 0) return [];
+  const out = await captureRaw(["ls-files", "-z", "--", ...paths], workspace);
+  return out ? out.split("\0").filter(Boolean) : [];
+}
+
+/**
+ * Tells git to stop comparing these paths against the worktree.
+ *
+ * Reports rather than throws, the way `git()` does: the caller decides, and
+ * here it decides to fail the Job. A path removed from the worktree but left in
+ * the index reads as a deletion, so `git add -A` in a writing Stage stages it
+ * and the pull request deletes the repository's own agents, skills and
+ * settings — 44 of them on the Run this was measured on.
+ */
+export async function skipWorktree(workspace: string, paths: string[]): Promise<GitRun> {
+  return git(["update-index", "--skip-worktree", "--", ...paths], workspace);
 }
 
 /**
@@ -199,6 +290,15 @@ export function redact(said: string): string {
 }
 
 async function capture(args: string[], cwd: string): Promise<string | undefined> {
+  const out = await captureRaw(args, cwd);
+  return out === undefined ? undefined : out.trim();
+}
+
+/**
+ * Untrimmed, for the output whose separator is not whitespace: trimming a
+ * `-z` listing eats a leading space that is part of the first path's name.
+ */
+async function captureRaw(args: string[], cwd: string): Promise<string | undefined> {
   return new Promise((resolve) => {
     const child = spawn("git", args, {
       cwd,
@@ -210,7 +310,7 @@ async function capture(args: string[], cwd: string): Promise<string | undefined>
       out += chunk;
     });
     child.on("error", () => resolve(undefined));
-    child.on("close", (code) => resolve(code === 0 ? out.trim() : undefined));
+    child.on("close", (code) => resolve(code === 0 ? out : undefined));
   });
 }
 
