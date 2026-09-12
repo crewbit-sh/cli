@@ -6,6 +6,17 @@ Upgrading is replacing the binary and starting it again. Stop the old one once
 and it finishes what it is holding before it exits, so an upgrade costs you
 nothing that was in flight. Stop it a second time and it exits straight away.
 
+## 0.10.0
+
+### Added
+
+- post the four other Run routes
+- A person's commit on a factory branch makes the next round drop the branch (#27)
+
+### Fixed
+
+- a job can run with no turn ceiling, and a budget stop now names it
+
 ## 0.9.0
 
 ### Added
