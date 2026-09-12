@@ -815,7 +815,7 @@ export async function startRunner(options: RunnerOptions): Promise<RunnerHandle>
         // Why the engine stopped, when it stopped for a reason worth naming.
         // The server has no column for `engineResult`, so it travels as an
         // artifact: a map the server already keeps verbatim.
-        const reason = stopReason(result, job.harness.maxTurns);
+        const reason = stopReason(result, job.harness.maxTurns, job.harness.maxBudgetUsd);
         // The whole table is in `outcome.ts`, and every branch of it has a test
         // that needs none of this running.
         const { outcome: decided, flipped } = decide({

@@ -30,8 +30,6 @@ export function buildArgs(run: EngineRun): string[] {
     "--output-format",
     "stream-json",
     "--verbose",
-    "--max-turns",
-    String(run.maxTurns),
     // The Job carries its own harness. The developer's global CLAUDE.md and
     // skills are not part of it, and loading them costs cache-creation tokens.
     "--setting-sources",
@@ -42,6 +40,9 @@ export function buildArgs(run: EngineRun): string[] {
     // them - connectors are fetched from the subscription login, not a file.
     "--strict-mcp-config",
   ];
+  // No ceiling at all when the harness gave none, rather than one computed
+  // from `undefined`: crewbit-v2#303 sends a per-project budget instead.
+  if (run.maxTurns !== undefined) args.push("--max-turns", String(run.maxTurns));
   if (run.model) args.push("--model", run.model);
   if (run.allowedTools?.length) args.push("--allowed-tools", run.allowedTools.join(","));
   if (run.permissionMode) args.push("--permission-mode", run.permissionMode);

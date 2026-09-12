@@ -4,14 +4,23 @@ import { buildArgs, buildEnv } from "./claude-cli.ts";
 const base = { prompt: "hi", cwd: "/tmp", maxTurns: 4, onEvent: () => {} };
 
 describe("buildArgs", () => {
-  test("always streams, always bounds the turns, always scopes the settings", () => {
+  test("always streams, always scopes the settings", () => {
     const args = buildArgs(base);
 
     expect(args).toContain("--print");
     expect(args.join(" ")).toContain("--output-format stream-json");
-    expect(args.join(" ")).toContain("--max-turns 4");
     // The developer's global CLAUDE.md and skills are not part of the Job.
     expect(args.join(" ")).toContain("--setting-sources project");
+  });
+
+  test("bounds the turns when the harness gave one", () => {
+    expect(buildArgs(base).join(" ")).toContain("--max-turns 4");
+  });
+
+  test("omits --max-turns when the harness gave none, so the engine runs uncapped", () => {
+    const { maxTurns: _maxTurns, ...noCeiling } = base;
+
+    expect(buildArgs(noCeiling).join(" ")).not.toContain("--max-turns");
   });
 
   test("does not pass the prompt as an argument", () => {

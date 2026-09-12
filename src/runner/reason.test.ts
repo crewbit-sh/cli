@@ -46,6 +46,70 @@ describe("an engine that ended cleanly", () => {
   test("says nothing when it named no reason either", () => {
     expect(stopReason({ ok: true, subtype: "", terminalReason: "", turns: 2 }, 80)).toBeUndefined();
   });
+
+  test("says nothing when it ended under budget, whatever the budget was", () => {
+    expect(stopReason({ ...clean, costUsd: 0.4 }, undefined, 10)).toBeUndefined();
+  });
+});
+
+describe("a Job with no turn ceiling", () => {
+  test("is never accused of stopping at one it was never given", () => {
+    const reason = stopReason(
+      { ok: false, subtype: "error", terminalReason: "", turns: 81 },
+      undefined,
+    );
+
+    expect(reason).not.toContain("turn ceiling");
+  });
+});
+
+describe("an engine that hit the budget ceiling", () => {
+  // Measured on this machine, 2026-09-12: a real `claude --max-budget-usd
+  // 0.0001` run reports `subtype: "error_max_budget_usd"`.
+  test("is named as the ceiling, with both amounts", () => {
+    const reason = stopReason(
+      {
+        ok: false,
+        subtype: "error_max_budget_usd",
+        terminalReason: "budget_exhausted",
+        turns: 1,
+        costUsd: 0.06,
+      },
+      undefined,
+      0.0001,
+    );
+
+    expect(reason).toContain("budget ceiling");
+    expect(reason).toContain("0.06");
+    expect(reason).toContain("0.00");
+  });
+
+  test("is recognised from the spend when the engine named nothing", () => {
+    const reason = stopReason(
+      { ok: false, subtype: "error", terminalReason: "", turns: 1, costUsd: 5 },
+      undefined,
+      5,
+    );
+
+    expect(reason).toContain("budget ceiling");
+  });
+
+  test("does not also claim the turn ceiling when a turn ceiling was given but not reached", () => {
+    const reason = stopReason(
+      {
+        ok: false,
+        subtype: "error_max_budget_usd",
+        terminalReason: "budget_exhausted",
+        turns: 1,
+        costUsd: 5,
+      },
+      80,
+      5,
+    );
+
+    expect(reason).toContain("budget ceiling");
+    expect(reason).not.toContain("turn ceiling");
+  });
 });
 
 describe("an engine that failed for some other reason", () => {

@@ -39,7 +39,8 @@ export type EngineResult = {
 export type EngineRun = {
   prompt: string;
   cwd: string;
-  maxTurns: number;
+  /** No ceiling when omitted: the engine runs until it finishes or hits its budget. */
+  maxTurns?: number;
   allowedTools?: string[];
   permissionMode?: string;
   model?: string;

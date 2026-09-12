@@ -16,10 +16,23 @@ export type StopFacts = {
   subtype: string;
   terminalReason: string;
   turns: number;
+  /** Only read for the budget ceiling; the turn ceiling never needs it. */
+  costUsd?: number;
 };
 
 /** The documented subtype the engine reports when it hits the turn ceiling. */
 const MAX_TURNS = "error_max_turns";
+
+/**
+ * Measured on this machine, 2026-09-12, against a real `--max-budget-usd`
+ * run (see docs/measured.md's max-turns entry for the same method): `subtype`
+ * is `error_max_budget_usd`, same shape as the turn ceiling's own subtype.
+ * `terminal_reason` came back `budget_exhausted`, not the `max_budget_usd`
+ * `stream.ts`'s defensive arm already guesses at - unverified against a real
+ * run when it was written, and still not fixed here since the subtype alone
+ * already matches every case measured.
+ */
+const MAX_BUDGET = "error_max_budget_usd";
 
 /**
  * The sentence, or nothing when the engine ended cleanly: the ordinary case
@@ -31,11 +44,26 @@ const MAX_TURNS = "error_max_turns";
  * only applies to a run that did not end cleanly, so a success that used its
  * last turn is not accused of stopping at the ceiling.
  */
-export function stopReason(result: StopFacts, maxTurns: number): string | undefined {
+export function stopReason(
+  result: StopFacts,
+  maxTurns: number | undefined,
+  maxBudgetUsd?: number,
+): string | undefined {
   if (result.ok) return undefined;
 
-  if (result.subtype === MAX_TURNS || (maxTurns > 0 && result.turns >= maxTurns)) {
+  if (
+    result.subtype === MAX_TURNS ||
+    (maxTurns !== undefined && maxTurns > 0 && result.turns >= maxTurns)
+  ) {
     return `the engine stopped at the turn ceiling: ${result.turns} turns against a maximum of ${maxTurns}`;
+  }
+
+  const costUsd = result.costUsd ?? 0;
+  if (
+    result.subtype === MAX_BUDGET ||
+    (maxBudgetUsd !== undefined && maxBudgetUsd > 0 && costUsd >= maxBudgetUsd)
+  ) {
+    return `the engine stopped at the budget ceiling: $${costUsd.toFixed(2)} spent against a maximum of $${(maxBudgetUsd ?? 0).toFixed(2)}`;
   }
 
   const named = result.terminalReason.trim() || result.subtype.trim();
