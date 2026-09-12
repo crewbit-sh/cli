@@ -218,10 +218,14 @@ const CEILING_SUBTYPES = new Set(["error_max_turns", "error_max_budget_usd"]);
  * The defensive arm, per the engine invariant. `fixtures/stream-api-error.jsonl`
  * is the measured precedent that the CLI does not always agree with the
  * documented table: it carried `subtype: "success"` with `is_error: true` and
- * the real reason in `terminal_reason`. Neither arm has been observed against a
- * real ceiling on this machine.
+ * the real reason in `terminal_reason`.
+ *
+ * Both measured 2026-09-12, `claude --output-format stream-json --verbose`:
+ * `--max-turns 1` against a prompt needing more reports `terminal_reason:
+ * "max_turns"`; `--max-budget-usd 0.0001` reports `"budget_exhausted"`, not
+ * `"max_budget_usd"` - this arm carried that guess, unmeasured, until now.
  */
-const CEILING_REASONS = new Set(["max_turns", "max_budget_usd"]);
+const CEILING_REASONS = new Set(["max_turns", "budget_exhausted"]);
 
 function hitCeiling(subtype: string, terminalReason: string): boolean {
   return CEILING_SUBTYPES.has(subtype) || CEILING_REASONS.has(terminalReason);

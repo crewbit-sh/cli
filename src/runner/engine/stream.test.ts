@@ -381,8 +381,11 @@ describe("a run that stopped at a ceiling", () => {
   });
 
   test("a budget limit reported only in terminal_reason is read as one as well", () => {
+    // #29: measured 2026-09-12, `claude --max-budget-usd 0.0001 --output-format
+    // stream-json` - the real value, not the "max_budget_usd" this arm
+    // guessed at before anyone had run it.
     const result = parsed(
-      resultLine({ is_error: true, subtype: "success", terminal_reason: "max_budget_usd" }),
+      resultLine({ is_error: true, subtype: "success", terminal_reason: "budget_exhausted" }),
     );
 
     expect(result?.ceiling).toBe(true);

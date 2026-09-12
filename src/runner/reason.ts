@@ -27,10 +27,8 @@ const MAX_TURNS = "error_max_turns";
  * Measured on this machine, 2026-09-12, against a real `--max-budget-usd`
  * run (see docs/measured.md's max-turns entry for the same method): `subtype`
  * is `error_max_budget_usd`, same shape as the turn ceiling's own subtype.
- * `terminal_reason` came back `budget_exhausted`, not the `max_budget_usd`
- * `stream.ts`'s defensive arm already guesses at - unverified against a real
- * run when it was written, and still not fixed here since the subtype alone
- * already matches every case measured.
+ * `terminal_reason` came back `budget_exhausted`, not `max_budget_usd` -
+ * #29 is where `stream.ts`'s own defensive arm was fixed to match.
  */
 const MAX_BUDGET = "error_max_budget_usd";
 
