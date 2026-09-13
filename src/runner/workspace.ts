@@ -221,16 +221,21 @@ async function workToContinue(
 /**
  * What a checked-out repository may hand the engine, and what it may not.
  *
- * `.claude/rules/**` and `.claude/CLAUDE.md` are project instructions: markdown
- * a Stage reads as context, the same category the server's own rules Spec
- * writes into a target repository. Everything else `.claude/` can hold is a way
- * to make the engine act the moment it starts, not just inform it: `settings.json`
- * and `settings.local.json` carry `hooks`, which run a shell command on their
- * own schedule (`PreToolUse`, `SessionStart`, ...) with no `--permission-mode` or
- * `--allowed-tools` gate over them; `agents/`, `commands/` and `skills/` are
- * each a way to extend what the engine can be made to invoke. A root
- * `.mcp.json` is the same problem one level up: a project MCP server is a
- * command the engine starts on its own.
+ * `.claude/rules/**`, `.claude/CLAUDE.md` and `.claude/skills/**` are project
+ * instructions: markdown a Stage reads as context, the same category the
+ * server's own rules Spec writes into a target repository, and (#26) what
+ * progressive disclosure needs a skill to be — a rule loaded only once a Stage
+ * reaches the step it is about, rather than one short prompt carrying all of
+ * them whole. Everything else `.claude/` can hold is a way to make the engine
+ * act the moment it starts, not just inform it: `settings.json` and
+ * `settings.local.json` carry `hooks`, which run a shell command on their own
+ * schedule (`PreToolUse`, `SessionStart`, ...) with no `--permission-mode` or
+ * `--allowed-tools` gate over them; `agents/` and `commands/` are each a way to
+ * extend what the engine can be made to invoke on its own, which a skill is
+ * not: `--setting-sources project` still governs whether it loads at all, and
+ * loading it teaches the engine something rather than handing it a new thing
+ * to run. A root `.mcp.json` is the same problem one level up: a project MCP
+ * server is a command the engine starts on its own.
  *
  * `--setting-sources project` on the CLI invocation cannot be narrowed to load
  * the rules without loading the rest of `.claude/` too — both come from the
@@ -241,12 +246,12 @@ async function workToContinue(
  * worktree alone they stay tracked, so git reports every one of them as a
  * deletion: `git status` in the workspace is dirty, a code stage that stages
  * with `git add -A` or commits with `-a` commits the deletions, and the pull
- * request then deletes the repository's own agents, skills and settings. One
- * Run's diff was 48 files for a change of 4. `--skip-worktree` on each removed
- * path is git being told not to look, so the removal never reads as a change,
- * and the engine still sees none of it — exactly as this was meant to work.
+ * request then deletes the repository's own agents and settings. One Run's
+ * diff was 48 files for a change of 4. `--skip-worktree` on each removed path
+ * is git being told not to look, so the removal never reads as a change, and
+ * the engine still sees none of it — exactly as this was meant to work.
  */
-const CLAUDE_KEEP = new Set(["rules", "CLAUDE.md"]);
+const CLAUDE_KEEP = new Set(["rules", "CLAUDE.md", "skills"]);
 
 async function sanitizeClaudeConfig(
   workspace: string,

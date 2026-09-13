@@ -875,12 +875,19 @@ describe("what a checked-out repository may configure the engine with", () => {
     });
     dirs.push(workspace);
 
-    expect(await readdir(join(workspace, ".claude"))).toEqual(["rules"]);
+    expect(await readdir(join(workspace, ".claude")).then((f) => f.sort())).toEqual([
+      "rules",
+      "skills",
+    ]);
     expect(await readdir(join(workspace, ".claude", "rules")).then((f) => f.sort())).toEqual([
       "planning.md",
       "ready_for_code.md",
       "testing.md",
     ]);
+    expect(await readdir(join(workspace, ".claude", "skills"))).toEqual(["s"]);
+    expect(await readFile(join(workspace, ".claude", "skills", "s", "SKILL.md"), "utf8")).toContain(
+      "a custom skill",
+    );
     expect(await readFile(join(workspace, "CLAUDE.md"), "utf8")).toContain("project instructions");
     expect(await readdir(workspace)).not.toContain(".mcp.json");
 
@@ -893,12 +900,11 @@ describe("what a checked-out repository may configure the engine with", () => {
     expect(warned).toMatchObject({ job_id: "job_1" });
     const removed = (warned as { removed: string[] }).removed;
     // Directory granularity, one entry per thing removed rather than one per
-    // file: `.claude/skills` says more to a person than forty file names.
+    // file: `.claude/agents` says more to a person than forty file names.
     expect(removed.slice().sort()).toEqual([
       ".claude/agents",
       ".claude/settings.json",
       ".claude/settings.local.json",
-      ".claude/skills",
       ".mcp.json",
     ]);
   });
@@ -911,13 +917,13 @@ describe("what a checked-out repository may configure the engine with", () => {
 
     // The files stay tracked, so removing them from the worktree alone shows
     // every one of them as deleted, and the code stage's `git add -A` commits
-    // the deletions: a pull request that deletes the repository's own agents,
-    // skills and settings.
+    // the deletions: a pull request that deletes the repository's own agents
+    // and settings.
     expect(await gitOut(["status", "--porcelain"], workspace)).toBe("");
     const present = await readdir(join(workspace, ".claude"));
     expect(present).not.toContain("settings.json");
     expect(present).not.toContain("agents");
-    expect(present).not.toContain("skills");
+    expect(present).toContain("skills");
     expect(await readdir(workspace)).not.toContain(".mcp.json");
   });
 
