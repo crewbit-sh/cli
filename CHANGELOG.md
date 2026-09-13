@@ -6,6 +6,12 @@ Upgrading is replacing the binary and starting it again. Stop the old one once
 and it finishes what it is holding before it exits, so an upgrade costs you
 nothing that was in flight. Stop it a second time and it exits straight away.
 
+## 0.10.1
+
+### Fixed
+
+- --server and --file refuse unsafe values, and a Run id cannot forge output
+
 ## 0.10.0
 
 ### Added
