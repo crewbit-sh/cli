@@ -16,6 +16,7 @@ import {
   onRemote,
   pushed,
   pushFailureMessage,
+  rebaseOntoFreshBase,
   redact,
   remoteHead,
   withToken,
@@ -696,5 +697,86 @@ describe("taking the credential out of what git said", () => {
     // from an external process could fail the Job rather than explain it.
     expect(said.length).toBeLessThanOrEqual(2000);
     expect(said).toContain("fatal: the last line");
+  });
+});
+
+/**
+ * Advances the base out of band, the way another push during a long round
+ * does: a separate clone, a commit, a push, nothing this Job's own workspace
+ * knows about until it asks.
+ */
+function advanceBase(
+  origin: { url: string; baseBranch: string },
+  changes: Record<string, string>,
+): void {
+  const dir = scratch("crewbit-advance-");
+  sh(["clone", "-q", origin.url, dir], ".");
+  for (const [name, content] of Object.entries(changes)) writeFileSync(join(dir, name), content);
+  sh(["add", "."], dir);
+  sh(["-c", "user.email=t@t.test", "-c", "user.name=t", "commit", "-qm", "docs"], dir);
+  sh(["push", "-q", "origin", `HEAD:${origin.baseBranch}`], dir);
+}
+
+describe("rebasing onto a base that moved during the round", () => {
+  /**
+   * cli#4/crewbit-v2#328: measured on #314, a 99-turn code round delivered
+   * four commits and was refused for being two commits behind main, because
+   * two docs pushes landed while it was still working. This is the cheap path
+   * that makes that refusal fire only on a real conflict: #328's server
+   * Job, dispatched with no engine, is the fallback rather than the norm.
+   */
+  test("replays this Job's own commits onto the fresh base when there is no conflict", async () => {
+    const origin = bareOrigin();
+    const { workspace, repo } = await workspaceOn(origin);
+
+    // This round's own work, on the base as it was at clone time.
+    writeFileSync(join(workspace, "feature.ts"), "export const feature = 1;\n");
+    await commitAll(workspace, "add the feature");
+
+    // The base the round started from is not the base anymore.
+    advanceBase(origin, { "README.md": "# a repository\nupdated\n" });
+
+    const result = await rebaseOntoFreshBase(workspace, repo);
+
+    expect(result.rebased).toBe(true);
+    expect(readFileSync(join(workspace, "README.md"), "utf8")).toContain("updated");
+    expect(readFileSync(join(workspace, "feature.ts"), "utf8")).toContain("feature = 1");
+    // BASE_REF moved with it: the base's own commit does not count as this
+    // Job's, or `changed-files.txt` would name a file this Job never touched.
+    expect(await commitsSince(workspace)).toHaveLength(1);
+  });
+
+  test("leaves the branch exactly as it was when the rebase would conflict", async () => {
+    const origin = bareOrigin();
+    const { workspace, repo } = await workspaceOn(origin);
+
+    writeFileSync(join(workspace, "app.ts"), "export const answer = 100;\n");
+    await commitAll(workspace, "change app.ts");
+    const beforeRebase = await head(workspace);
+
+    // The base changes the same line this round's own commit did.
+    advanceBase(origin, { "app.ts": "export const answer = 200;\n" });
+
+    const result = await rebaseOntoFreshBase(workspace, repo);
+
+    expect(result.rebased).toBe(false);
+    expect(await head(workspace)).toBe(beforeRebase);
+    expect(readFileSync(join(workspace, "app.ts"), "utf8")).toContain("answer = 100");
+    // No half-finished rebase left for the push or the next command to trip
+    // over: today's guard refuses this exactly as it already refuses a branch
+    // behind main, which is what a conflict here still is.
+    expect(existsSync(join(workspace, ".git", "rebase-merge"))).toBe(false);
+    expect(existsSync(join(workspace, ".git", "rebase-apply"))).toBe(false);
+  });
+
+  test("does nothing when the base has not moved, so an unrelated round pays only the fetch", async () => {
+    const origin = bareOrigin();
+    const { workspace, repo } = await workspaceOn(origin);
+    const before = await head(workspace);
+
+    const result = await rebaseOntoFreshBase(workspace, repo);
+
+    expect(result.rebased).toBe(false);
+    expect(await head(workspace)).toBe(before);
   });
 });

@@ -38,6 +38,7 @@ import {
   onRemote,
   pushed,
   pushFailureMessage,
+  rebaseOntoFreshBase,
   remoteHead,
 } from "./git.ts";
 import { decide } from "./outcome.ts";
@@ -446,6 +447,12 @@ export async function startRunner(options: RunnerOptions): Promise<RunnerHandle>
     // Whatever the agent edited and did not commit. The prompt reserves turns to
     // do this itself; a run that hit the ceiling mid-change did not get to.
     await commitAll(workspace, `crewbit: work in progress for ${job.stage}`);
+
+    // cli#4/crewbit-v2#328: cheap, and before anything below reads BASE_REF.
+    // A conflict is left alone rather than resolved - the guard past `pushed`
+    // still refuses exactly as it does today, naming the same "behind main" it
+    // always has, and #328's server-dispatched rebase Job is the fallback.
+    await rebaseOntoFreshBase(workspace, repo);
 
     // #10: a fact about the checkout, not about whether the push landed - the
     // server refuses a rules pull request that touched anything but the three

@@ -105,6 +105,43 @@ export function pushFailureMessage(commits: number, branch: string, stderr: stri
 }
 
 /**
+ * Rebases onto the base as it is right now, if it moved since this Job's own
+ * clone and the rebase applies cleanly. crewbit-sh/crewbit-v2#328's server Job
+ * is the fallback for a real conflict; this is the cheap path that keeps most
+ * "behind main" refusals from firing at all — measured on #314, a 99-turn
+ * code round refused for two docs pushes that landed while it was working.
+ *
+ * A conflict is left exactly as it was found: `--abort` restores the branch,
+ * and the caller delivers as it would have anyway, letting the existing
+ * behind-the-base refusal name it. This never pushes; the caller decides that.
+ */
+export async function rebaseOntoFreshBase(
+  workspace: string,
+  repo: Repo,
+): Promise<{ rebased: boolean }> {
+  const fetched = await git(
+    ["fetch", "--depth", "1", withToken(repo.url, repo.token), repo.baseBranch],
+    workspace,
+  );
+  if (fetched.code !== 0) return { rebased: false };
+
+  const freshBase = await commitAt("FETCH_HEAD", workspace);
+  const oldBase = await commitAt(BASE_REF, workspace);
+  if (!freshBase || !oldBase || freshBase === oldBase) return { rebased: false };
+
+  const rebased = await git(["rebase", "--onto", freshBase, oldBase, "HEAD"], workspace);
+  if (rebased.code !== 0) {
+    await git(["rebase", "--abort"], workspace);
+    return { rebased: false };
+  }
+
+  // `commitsSince`, `diffSince` and `changedFiles` all read from here: left at
+  // the old base, the base's own new commit would count as this Job's work.
+  await git(["update-ref", BASE_REF, freshBase], workspace);
+  return { rebased: true };
+}
+
+/**
  * Whether a push that was refused nevertheless left the work on the remote.
  *
  * The keepalive pushes the same ref the first push does, so one of them loses
