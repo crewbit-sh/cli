@@ -508,11 +508,10 @@ describe("acting on a Run", () => {
   });
 
   test("carries the body back on success", async () => {
-    const result = await actOnRun("https://s", "run_1", "cancel", "t", {
-      send: answering({ runId: "run_1", state: "cancelled" }),
-    });
+    const body = projection({ id: "run_1", state: "cancelled" });
+    const result = await actOnRun("https://s", "run_1", "cancel", "t", { send: answering(body) });
 
-    expect(result).toEqual({ ok: true, body: { runId: "run_1", state: "cancelled" } });
+    expect(result).toEqual({ ok: true, body });
   });
 
   test("a refusal carries the server's words, which say what to do next", async () => {
@@ -533,21 +532,21 @@ describe("acting on a Run", () => {
 });
 
 describe("what an acted-on Run prints", () => {
+  // #291: answer/cancel/judge/run-now answer the same projection GET
+  // /api/runs/:id does, state nested at body.run.state, not a flat ack.
   test("names the Run and the state the server says it is in now", () => {
-    expect(renderRunState({ runId: "run_1", state: "cancelled" })).toContain("run_1");
-    expect(renderRunState({ runId: "run_1", state: "cancelled" })).toContain("cancelled");
-  });
+    const printed = renderRunState(projection({ id: "run_1", state: "cancelled" }));
 
-  test("reads `id` as well, so a body that names it either way is understood", () => {
-    expect(renderRunState({ id: "run_2", state: "coding" })).toContain("run_2");
+    expect(printed).toContain("run_1");
+    expect(printed).toContain("cancelled");
   });
 
   test("falls back to the id that was asked about when the body names none", () => {
-    expect(renderRunState({ state: "coding" }, "run_3")).toContain("run_3");
+    expect(renderRunState({}, "run_3")).toContain("run_3");
   });
 
   test("says the server named no state rather than printing an empty one", () => {
-    const printed = renderRunState({ runId: "run_1" });
+    const printed = renderRunState({ run: { id: "run_1" } });
 
     expect(printed).toContain("run_1");
     expect(printed).toMatch(/no state/i);

@@ -76,6 +76,38 @@ function crewbit(...args: string[]): Promise<{ code: number | null; out: string 
   });
 }
 
+/**
+ * #291: `answer`, `cancel`, `judge` and `run-now` answer the same full
+ * projection `GET /api/runs/:id` does, not the flat `{runId, state}` they
+ * used to. A fixture that still hands back the old shape would let this
+ * suite pass while the binary reads a field that no longer exists.
+ */
+function runBody(over: Partial<{ id: string; state: string }> = {}): string {
+  return JSON.stringify({
+    run: {
+      id: "run_1",
+      state: "cancelled",
+      title: "add the health endpoint",
+      source: "acme/api",
+      externalKey: "12",
+      provider: "github",
+      reviewUrl: null,
+      updatedAt: "2026-08-24T12:00:00Z",
+      costUsd: null,
+      jobState: null,
+      jobStage: null,
+      jobRunner: null,
+      lastStage: null,
+      lastTurns: null,
+      lastTurnsMax: null,
+      ...over,
+    },
+    transitions: [],
+    events: { lines: [], total: 0 },
+    artifacts: {},
+  });
+}
+
 describe("driving one Run from a terminal", () => {
   beforeAll(() => {
     seen = [];
@@ -83,7 +115,7 @@ describe("driving one Run from a terminal", () => {
 
   test("`run cancel` reaches the route and says what the Run is now", async () => {
     seen = [];
-    answer = { status: 200, body: JSON.stringify({ runId: "run_1", state: "cancelled" }) };
+    answer = { status: 200, body: runBody({ state: "cancelled" }) };
 
     const { code, out } = await crewbit("run", "cancel", "run_1", "--token", "crw_t");
 
@@ -121,7 +153,7 @@ describe("driving one Run from a terminal", () => {
 
   test("`run answer --file` puts the file's object on the wire", async () => {
     seen = [];
-    answer = { status: 200, body: JSON.stringify({ runId: "run_1", state: "coding" }) };
+    answer = { status: 200, body: runBody({ state: "coding" }) };
     const path = join(WORK, "answer.json");
     writeFileSync(path, JSON.stringify({ choice: "the second one" }));
 
@@ -142,11 +174,23 @@ describe("driving one Run from a terminal", () => {
 
   test("`run now` posts to the route the server documents, not to the word typed", async () => {
     seen = [];
-    answer = { status: 200, body: JSON.stringify({ runId: "run_1", state: "planning" }) };
+    answer = { status: 200, body: runBody({ state: "planning" }) };
 
-    const { code } = await crewbit("run", "now", "run_1", "--token", "crw_t");
+    const { code, out } = await crewbit("run", "now", "run_1", "--token", "crw_t");
 
     expect(seen[0]?.path).toBe("/api/runs/run_1/run-now");
+    expect(out).toContain("planning");
+    expect(code).toBe(0);
+  });
+
+  test("`run judge` reaches the route and says what the Run is now", async () => {
+    seen = [];
+    answer = { status: 200, body: runBody({ state: "evaluating" }) };
+
+    const { code, out } = await crewbit("run", "judge", "run_1", "--token", "crw_t");
+
+    expect(seen[0]?.path).toBe("/api/runs/run_1/judge");
+    expect(out).toContain("evaluating");
     expect(code).toBe(0);
   });
 

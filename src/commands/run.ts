@@ -136,11 +136,8 @@ export async function answerGate(
  */
 export type RunAction = "answer" | "cancel" | "judge" | "run-now";
 
-/** What the server says a Run is after it acted, read defensively: this is its body, not ours. */
-export type RunAck = { runId?: string; id?: string; state?: string };
-
 export type ActionResult =
-  | { ok: true; body: RunAck }
+  | { ok: true; body: RunProjection }
   | { ok: false; status: number; reason: string };
 
 export async function actOnRun(
@@ -152,7 +149,7 @@ export async function actOnRun(
 ): Promise<ActionResult> {
   const { data, send = fetch } = options;
   const result = await postToRun(server, id, action, token, data ?? {}, send);
-  return result.ok ? { ok: true, body: result.body as RunAck } : result;
+  return result.ok ? { ok: true, body: result.body as RunProjection } : result;
 }
 
 /** Strips control characters, so a run id or state a printed line carries cannot forge a newline or a terminal escape code. */
@@ -161,13 +158,17 @@ export function printable(text: string): string {
 }
 
 /**
- * The line all five of these print: which Run, and what the server says it is
- * now. The id is echoed from the request when the body names none, so `cancel`
- * on a route that answers with nothing still says what was cancelled.
+ * The line all four of these print: which Run, and what the server says it is
+ * now (#291: the same projection `GET /api/runs/:id` answers, state nested at
+ * `run.state`). The id is echoed from the request when the body names none, so
+ * `cancel` on a route that answers with nothing still says what was cancelled.
  */
-export function renderRunState(body: RunAck, asked?: string): string {
-  const id = body.runId ?? body.id ?? asked ?? "the Run";
-  const state = body.state ?? "the server named no state";
+export function renderRunState(
+  body: { run?: { id?: string; state?: string } },
+  asked?: string,
+): string {
+  const id = body.run?.id ?? asked ?? "the Run";
+  const state = body.run?.state ?? "the server named no state";
   return `${printable(id)}: ${printable(state)}`;
 }
 
@@ -499,7 +500,7 @@ export async function runRun(argv: string[]): Promise<void> {
   if (gate) {
     console.log(renderAnswered(gate, id as string));
   } else if (action) {
-    console.log(renderRunState(result.body as RunAck, id));
+    console.log(renderRunState(result.body as RunProjection, id));
   } else if (verb === "list") {
     console.log(renderRuns((result.body as { runs: RunView[] }).runs));
   } else {
