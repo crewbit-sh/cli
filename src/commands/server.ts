@@ -23,3 +23,17 @@ export function stripTrailingSlashes(value: string): string {
   while (end > 0 && value[end - 1] === "/") end--;
   return value.slice(0, end);
 }
+
+/**
+ * What every request builder uses instead of the raw `--server`: a value
+ * already checked for a safe scheme. A guard that only checks the original
+ * and then builds the URL from it anyway leaves the sink reading unexamined
+ * input; building it from this call's own return value is what closes that.
+ */
+export function resolveServer(
+  server: string,
+): { ok: true; value: string } | { ok: false; message: string } {
+  const valid = validateServerUrl(server);
+  if (!valid.ok) return valid;
+  return { ok: true, value: stripTrailingSlashes(server) };
+}

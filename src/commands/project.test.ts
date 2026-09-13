@@ -39,20 +39,31 @@ describe("reading the org's Projects off the server", () => {
   test("an id with a slash in it is escaped rather than becoming a path", async () => {
     const { asked, get } = recording({ project: {}, sources: [] });
 
-    await fetchProject("s", "a/b", "t", { get });
+    await fetchProject("https://s", "a/b", "t", { get });
 
-    expect(asked.map((one) => one.url)).toEqual(["s/api/projects/a%2Fb"]);
+    expect(asked.map((one) => one.url)).toEqual(["https://s/api/projects/a%2Fb"]);
   });
 
   test("a refusal carries the status and what the server said", async () => {
     const get: Fetch = async () =>
       ({ ok: false, status: 404, statusText: "", text: async () => "no such project" }) as Response;
 
-    expect(await fetchProject("s", "p", "t", { get })).toEqual({
+    expect(await fetchProject("https://s", "p", "t", { get })).toEqual({
       ok: false,
       status: 404,
       reason: "no such project",
     });
+  });
+
+  test("a --server that is not http or https is refused without calling get", async () => {
+    const get: Fetch = async () => {
+      throw new Error("get must not be called");
+    };
+
+    const result = await fetchProjects("ws://127.0.0.1:1", "t", { get });
+
+    expect(result.ok).toBe(false);
+    expect(result.ok || result.reason).toContain("http");
   });
 });
 

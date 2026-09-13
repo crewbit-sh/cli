@@ -59,21 +59,21 @@ describe("reading one Run off the server", () => {
   test("asks for no events at all when none is asked for", async () => {
     const { asked, fetch: get } = urlSpy();
 
-    await fetchRun("s", "r", "t", { get });
+    await fetchRun("https://s", "r", "t", { get });
 
-    expect(asked).toEqual(["s/api/runs/r"]);
+    expect(asked).toEqual(["https://s/api/runs/r"]);
   });
 
   test("--events becomes ?limit= on the request", async () => {
     const { asked, fetch: get } = urlSpy();
 
-    await fetchRun("s", "r", "t", { events: 50, get });
+    await fetchRun("https://s", "r", "t", { events: 50, get });
 
-    expect(asked).toEqual(["s/api/runs/r?limit=50"]);
+    expect(asked).toEqual(["https://s/api/runs/r?limit=50"]);
   });
 
   test("carries the body back on success", async () => {
-    const result = await fetchRun("s", "r", "t", { get: answering({ run: { id: "r" } }) });
+    const result = await fetchRun("https://s", "r", "t", { get: answering({ run: { id: "r" } }) });
 
     expect(result).toEqual({ ok: true, body: { run: { id: "r" } } });
   });
@@ -82,9 +82,20 @@ describe("reading one Run off the server", () => {
     const get: Fetch = async () =>
       ({ ok: false, status: 404, statusText: "", text: async () => "no such run" }) as Response;
 
-    const result = await fetchRun("s", "r", "t", { get });
+    const result = await fetchRun("https://s", "r", "t", { get });
 
     expect(result).toEqual({ ok: false, status: 404, reason: "no such run" });
+  });
+
+  test("a --server that is not http or https is refused without calling get", async () => {
+    const get: Fetch = async () => {
+      throw new Error("get must not be called");
+    };
+
+    const result = await fetchRun("ws://127.0.0.1:1", "r", "t", { get });
+
+    expect(result.ok).toBe(false);
+    expect(result.ok || result.reason).toContain("http");
   });
 });
 
@@ -114,14 +125,14 @@ describe("listing the org's live Runs", () => {
   test("--limit becomes ?limit= on the request", async () => {
     const { asked, fetch: get } = urlSpy({ runs: [] });
 
-    await fetchRuns("s", "t", { limit: 5, get });
+    await fetchRuns("https://s", "t", { limit: 5, get });
 
-    expect(asked).toEqual(["s/api/runs?limit=5"]);
+    expect(asked).toEqual(["https://s/api/runs?limit=5"]);
   });
 
   test("carries the body back on success", async () => {
     const body = { runs: [{ id: "r" }] } as unknown as { runs: RunView[] };
-    const result = await fetchRuns("s", "t", { get: answering(body) });
+    const result = await fetchRuns("https://s", "t", { get: answering(body) });
 
     expect(result).toEqual({ ok: true, body });
   });
@@ -130,7 +141,7 @@ describe("listing the org's live Runs", () => {
     const get: Fetch = async () =>
       ({ ok: false, status: 401, statusText: "", text: async () => "no such token" }) as Response;
 
-    const result = await fetchRuns("s", "t", { get });
+    const result = await fetchRuns("https://s", "t", { get });
 
     expect(result).toEqual({ ok: false, status: 401, reason: "no such token" });
   });
@@ -376,7 +387,7 @@ describe("answering the plan gate", () => {
       return { ok: true, json: async () => ({ runId: "run_1" }) } as Response;
     };
 
-    await answerGate("s", "run_1", "reject", "t", { reason: "the surface is wrong", send });
+    await answerGate("https://s", "run_1", "reject", "t", { reason: "the surface is wrong", send });
 
     expect(JSON.parse(String(asked[0]?.body))).toEqual({ reason: "the surface is wrong" });
   });
@@ -390,7 +401,7 @@ describe("answering the plan gate", () => {
         text: async () => "there is no plan to approve: plan it again first",
       }) as Response;
 
-    expect(await answerGate("s", "r", "approve", "t", { send })).toEqual({
+    expect(await answerGate("https://s", "r", "approve", "t", { send })).toEqual({
       ok: false,
       status: 409,
       reason: "there is no plan to approve: plan it again first",
@@ -439,6 +450,17 @@ describe("acting on a Run", () => {
     expect(JSON.parse(String(asked[0]?.init.body))).toEqual({ choice: "the second one" });
   });
 
+  test("a --server that is not http or https is refused without calling send", async () => {
+    const send: Fetch = async () => {
+      throw new Error("send must not be called");
+    };
+
+    const result = await actOnRun("ws://127.0.0.1:1", "run_1", "cancel", "t", { send });
+
+    expect(result.ok).toBe(false);
+    expect(result.ok || result.reason).toContain("http");
+  });
+
   test("`cancel` posts to the Run's own cancel route, with no data to carry", async () => {
     const asked: Array<{ url: string; init: RequestInit }> = [];
     const send: Fetch = async (url, init) => {
@@ -446,9 +468,9 @@ describe("acting on a Run", () => {
       return { ok: true, json: async () => ({ runId: "run_1", state: "cancelled" }) } as Response;
     };
 
-    await actOnRun("s", "run_1", "cancel", "t", { send });
+    await actOnRun("https://s", "run_1", "cancel", "t", { send });
 
-    expect(asked[0]?.url).toBe("s/api/runs/run_1/cancel");
+    expect(asked[0]?.url).toBe("https://s/api/runs/run_1/cancel");
     expect(asked[0]?.init.method).toBe("POST");
     expect(JSON.parse(String(asked[0]?.init.body))).toEqual({});
   });
@@ -456,25 +478,25 @@ describe("acting on a Run", () => {
   test("`judge` posts to the Run's own judge route", async () => {
     const { asked, fetch: send } = urlSpy({ runId: "run_1", state: "evaluating" });
 
-    await actOnRun("s", "run_1", "judge", "t", { send });
+    await actOnRun("https://s", "run_1", "judge", "t", { send });
 
-    expect(asked).toEqual(["s/api/runs/run_1/judge"]);
+    expect(asked).toEqual(["https://s/api/runs/run_1/judge"]);
   });
 
   test("`now` is `run-now` on the wire, which is the route the server documents", async () => {
     const { asked, fetch: send } = urlSpy({ runId: "run_1", state: "coding" });
 
-    await actOnRun("s", "run_1", "run-now", "t", { send });
+    await actOnRun("https://s", "run_1", "run-now", "t", { send });
 
-    expect(asked).toEqual(["s/api/runs/run_1/run-now"]);
+    expect(asked).toEqual(["https://s/api/runs/run_1/run-now"]);
   });
 
   test("an id with a character that needs escaping stays one path segment", async () => {
     const { asked, fetch: send } = urlSpy();
 
-    await actOnRun("s", "a/b", "cancel", "t", { send });
+    await actOnRun("https://s", "a/b", "cancel", "t", { send });
 
-    expect(asked).toEqual(["s/api/runs/a%2Fb/cancel"]);
+    expect(asked).toEqual(["https://s/api/runs/a%2Fb/cancel"]);
   });
 
   test("a trailing slash on the server does not double up", async () => {
@@ -486,7 +508,7 @@ describe("acting on a Run", () => {
   });
 
   test("carries the body back on success", async () => {
-    const result = await actOnRun("s", "run_1", "cancel", "t", {
+    const result = await actOnRun("https://s", "run_1", "cancel", "t", {
       send: answering({ runId: "run_1", state: "cancelled" }),
     });
 
@@ -502,7 +524,7 @@ describe("acting on a Run", () => {
         text: async () => "nothing is waiting on an answer",
       }) as Response;
 
-    expect(await actOnRun("s", "run_1", "answer", "t", { data: {}, send })).toEqual({
+    expect(await actOnRun("https://s", "run_1", "answer", "t", { data: {}, send })).toEqual({
       ok: false,
       status: 409,
       reason: "nothing is waiting on an answer",

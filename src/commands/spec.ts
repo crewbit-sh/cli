@@ -1,7 +1,7 @@
 import { parseArgs } from "node:util";
 import { createLogger, errorFields } from "../log.ts";
 import { printable, type RunProjection } from "./run.ts";
-import { stripTrailingSlashes, validateServerUrl } from "./server.ts";
+import { resolveServer } from "./server.ts";
 
 export const SPEC_USAGE = `  --project <id>     which Project's Specs, for \`list\`, from \`crewbit project list\`
   --token <token>    credential minted on the server's credentials page, or $CREWBIT_TOKEN
@@ -26,9 +26,11 @@ export async function fetchSpecs(
   token: string,
   options: { get?: Fetch } = {},
 ): Promise<FetchSpecsResult> {
+  const resolved = resolveServer(server);
+  if (!resolved.ok) return { ok: false, status: 0, reason: resolved.message };
   const { get = fetch } = options;
   const query = new URLSearchParams({ project: projectId });
-  const url = `${stripTrailingSlashes(server)}/api/specs?${query}`;
+  const url = `${resolved.value}/api/specs?${query}`;
   const response = await get(url, { headers: { authorization: `Bearer ${token}` } });
   if (!response.ok) {
     const reason = await response.text().catch(() => response.statusText);
@@ -53,7 +55,9 @@ async function postSpec(
   token: string,
   send: Fetch,
 ): Promise<{ ok: true; body: unknown } | { ok: false; status: number; reason: string }> {
-  const response = await send(`${stripTrailingSlashes(server)}/api/specs/${route}`, {
+  const resolved = resolveServer(server);
+  if (!resolved.ok) return { ok: false, status: 0, reason: resolved.message };
+  const response = await send(`${resolved.value}/api/specs/${route}`, {
     method: "POST",
     headers: { "content-type": "application/json", authorization: `Bearer ${token}` },
     body: JSON.stringify({ spec: ref }),
@@ -191,12 +195,6 @@ export async function runSpec(argv: string[]): Promise<void> {
     process.exit(1);
   }
 
-  const server = validateServerUrl(values.server);
-  if (!server.ok) {
-    log.error(server.message);
-    process.exit(1);
-  }
-
   let result: FetchSpecsResult | PlanResult | SpecRunResult;
   try {
     if (verb === "list") {
@@ -223,6 +221,8 @@ export async function runSpec(argv: string[]): Promise<void> {
   if (verb === "list") {
     console.log(renderSpecs((result.body as { sources: Listed[] }).sources));
   } else if (verb === "code") {
+    // `renderStarted` already runs the id through `printable`, so the sink
+    // still reads a sanitiser's own return, not the server's raw field.
     console.log(renderStarted((result.body as RunProjection).run?.id));
   } else {
     console.log(renderPlanned(result.body as { runId?: string }));

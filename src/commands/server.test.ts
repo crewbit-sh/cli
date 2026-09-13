@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { stripTrailingSlashes, validateServerUrl } from "./server.ts";
+import { resolveServer, stripTrailingSlashes, validateServerUrl } from "./server.ts";
 
 describe("stripTrailingSlashes", () => {
   test("removes one trailing slash", () => {
@@ -35,5 +35,20 @@ describe("validateServerUrl", () => {
     const result = validateServerUrl("not a url");
 
     expect(result.ok).toBe(false);
+  });
+});
+
+describe("resolveServer", () => {
+  test("is the URL with its trailing slash gone, for a valid scheme", () => {
+    const result = resolveServer("https://app.crewbit.sh/");
+
+    expect(result).toEqual({ ok: true, value: "https://app.crewbit.sh" });
+  });
+
+  test("refuses the same values validateServerUrl refuses, naming it", () => {
+    const result = resolveServer("ws://127.0.0.1:1");
+
+    expect(result.ok).toBe(false);
+    expect(result.ok || result.message).toContain("http");
   });
 });

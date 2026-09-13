@@ -64,16 +64,27 @@ describe("reading a Project's Specs off the server", () => {
       return { ok: true, json: async () => ({ sources: [] }) } as Response;
     };
 
-    await fetchSpecs("s", "a&b=c", "t", { get });
+    await fetchSpecs("https://s", "a&b=c", "t", { get });
 
-    expect(asked).toEqual(["s/api/specs?project=a%26b%3Dc"]);
+    expect(asked).toEqual(["https://s/api/specs?project=a%26b%3Dc"]);
+  });
+
+  test("a --server that is not http or https is refused without calling get", async () => {
+    const get: Fetch = async () => {
+      throw new Error("get must not be called");
+    };
+
+    const result = await fetchSpecs("ws://127.0.0.1:1", "proj_1", "t", { get });
+
+    expect(result.ok).toBe(false);
+    expect(result.ok || result.reason).toContain("http");
   });
 
   test("a refusal carries the status and what the server said", async () => {
     const get: Fetch = async () =>
       ({ ok: false, status: 400, statusText: "", text: async () => "pass ?project=" }) as Response;
 
-    expect(await fetchSpecs("s", "", "t", { get })).toEqual({
+    expect(await fetchSpecs("https://s", "", "t", { get })).toEqual({
       ok: false,
       status: 400,
       reason: "pass ?project=",
@@ -162,11 +173,22 @@ describe("planning one Spec through the server", () => {
         text: async () => "blocked: this Spec waits on one Spec that has not landed",
       }) as Response;
 
-    expect(await planSpec("s", "a/b#1", "t", { send })).toEqual({
+    expect(await planSpec("https://s", "a/b#1", "t", { send })).toEqual({
       ok: false,
       status: 409,
       reason: "blocked: this Spec waits on one Spec that has not landed",
     });
+  });
+
+  test("a --server that is not http or https is refused without calling send", async () => {
+    const send: Fetch = async () => {
+      throw new Error("send must not be called");
+    };
+
+    const result = await planSpec("ws://127.0.0.1:1", "acme/api#12", "t", { send });
+
+    expect(result.ok).toBe(false);
+    expect(result.ok || result.reason).toContain("http");
   });
 });
 
@@ -233,7 +255,7 @@ describe("running one Spec straight through", () => {
       return { ok: true, json: async () => ({}) } as Response;
     };
 
-    await runSpecNow("s", "spec_abc123", "t", { send });
+    await runSpecNow("https://s", "spec_abc123", "t", { send });
 
     expect(JSON.parse(String(asked[0]?.body))).toEqual({ spec: "spec_abc123" });
   });
@@ -257,7 +279,7 @@ describe("running one Spec straight through", () => {
     const send: Fetch = async () =>
       ({ ok: true, status: 200, statusText: "", json: async () => body }) as Response;
 
-    expect(await runSpecNow("s", "a/b#1", "t", { send })).toEqual({ ok: true, body });
+    expect(await runSpecNow("https://s", "a/b#1", "t", { send })).toEqual({ ok: true, body });
   });
 
   test("a refusal carries the server's words, which is the whole answer", async () => {
@@ -269,7 +291,7 @@ describe("running one Spec straight through", () => {
         text: async () => "blocked: this Spec waits on one Spec that has not landed",
       }) as Response;
 
-    expect(await runSpecNow("s", "a/b#1", "t", { send })).toEqual({
+    expect(await runSpecNow("https://s", "a/b#1", "t", { send })).toEqual({
       ok: false,
       status: 409,
       reason: "blocked: this Spec waits on one Spec that has not landed",

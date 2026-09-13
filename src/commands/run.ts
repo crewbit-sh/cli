@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { normalize, sep } from "node:path";
 import { parseArgs } from "node:util";
 import { createLogger, errorFields } from "../log.ts";
-import { stripTrailingSlashes, validateServerUrl } from "./server.ts";
+import { resolveServer } from "./server.ts";
 
 export const RUN_USAGE = `  --reason <text>    why, for \`reject\`, and it is what the next plan reads
   --data <json>      the answer itself, for \`answer\`, as a JSON object
@@ -32,9 +32,11 @@ export async function fetchRun(
   token: string,
   options: { events?: number; get?: Fetch } = {},
 ): Promise<FetchRunResult> {
+  const resolved = resolveServer(server);
+  if (!resolved.ok) return { ok: false, status: 0, reason: resolved.message };
   const { events, get = fetch } = options;
   const path = `/api/runs/${encodeURIComponent(id)}`;
-  const url = `${stripTrailingSlashes(server)}${path}${events !== undefined ? `?limit=${events}` : ""}`;
+  const url = `${resolved.value}${path}${events !== undefined ? `?limit=${events}` : ""}`;
   const response = await get(url, { headers: { authorization: `Bearer ${token}` } });
   if (!response.ok) {
     const reason = await response.text().catch(() => response.statusText);
@@ -56,8 +58,10 @@ export async function fetchRuns(
   token: string,
   options: { limit?: number; get?: Fetch } = {},
 ): Promise<FetchRunsResult> {
+  const resolved = resolveServer(server);
+  if (!resolved.ok) return { ok: false, status: 0, reason: resolved.message };
   const { limit, get = fetch } = options;
-  const url = `${stripTrailingSlashes(server)}/api/runs${limit !== undefined ? `?limit=${limit}` : ""}`;
+  const url = `${resolved.value}/api/runs${limit !== undefined ? `?limit=${limit}` : ""}`;
   const response = await get(url, { headers: { authorization: `Bearer ${token}` } });
   if (!response.ok) {
     const reason = await response.text().catch(() => response.statusText);
@@ -86,7 +90,9 @@ async function postToRun(
   body: Record<string, unknown>,
   send: Fetch,
 ): Promise<{ ok: true; body: unknown } | { ok: false; status: number; reason: string }> {
-  const url = `${stripTrailingSlashes(server)}/api/runs/${encodeURIComponent(id)}/${route}`;
+  const resolved = resolveServer(server);
+  if (!resolved.ok) return { ok: false, status: 0, reason: resolved.message };
+  const url = `${resolved.value}/api/runs/${encodeURIComponent(id)}/${route}`;
   const response = await send(url, {
     method: "POST",
     headers: { "content-type": "application/json", authorization: `Bearer ${token}` },
@@ -411,12 +417,13 @@ export async function runRun(argv: string[]): Promise<void> {
     }
     let text = values.data;
     if (text === undefined && values.file !== undefined) {
-      if (normalize(values.file).split(sep).includes("..")) {
+      const resolvedFile = normalize(values.file);
+      if (resolvedFile.split(sep).includes("..")) {
         log.error(`--file must not walk out of a directory with "..": "${values.file}"`);
         process.exit(1);
       }
       try {
-        text = readFileSync(values.file, "utf8");
+        text = readFileSync(resolvedFile, "utf8");
       } catch (cause) {
         log.error(`could not read ${values.file}`, errorFields(cause));
         process.exit(1);
@@ -450,12 +457,6 @@ export async function runRun(argv: string[]): Promise<void> {
       log.error(`--limit wants a whole number of zero or more, not "${values.limit}"`);
       process.exit(1);
     }
-  }
-
-  const server = validateServerUrl(values.server);
-  if (!server.ok) {
-    log.error(server.message);
-    process.exit(1);
   }
 
   let result: FetchRunResult | FetchRunsResult | GateResult | ActionResult;
