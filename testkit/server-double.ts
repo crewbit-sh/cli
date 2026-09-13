@@ -26,6 +26,7 @@ import {
   type JobEventParams,
   type JobStatusParams,
   PROTOCOL_VERSION,
+  type RepoGrant,
   RpcPeer,
   type RunnerCalls,
   type ServerCalls,
@@ -52,6 +53,13 @@ export type ServerDouble = {
    * it. Set before the reconnect that is expected to ask.
    */
   resumeWith(jobId: string, point: { ackedSeq: number; stillMine: boolean }): void;
+  /**
+   * What the next `job.status` for this Job is answered with. cli#38: unset
+   * is a server with nothing to hand over, the runner's own everyday case.
+   */
+  answerStatusWith(jobId: string, grant: RepoGrant): void;
+  /** cli#38: whether any `job.status` for this Job arrived as a request. */
+  sawStatusAsRequest(jobId: string): boolean;
   /** Drops the current connection without stopping the double, so the runner reconnects. */
   disconnectRunner(): void;
   /**
@@ -125,6 +133,13 @@ export async function startServerDouble(options: ServerDoubleOptions = {}): Prom
   let currentSocket: Socket | undefined;
   const helloLog: RunnerCalls["runner.hello"]["params"][] = [];
   const resumePoints = new Map<string, { ackedSeq: number; stillMine: boolean }>();
+  const grantAnswers = new Map<string, RepoGrant>();
+  /**
+   * cli#38: `RpcPeer`'s own handler cannot tell a request from a notification
+   * apart - both reach it as the same call - so this reads the raw frame
+   * instead, which is the only place that distinction is visible at all.
+   */
+  const statusRequests = new Set<string>();
   let helloResolve: ((params: RunnerCalls["runner.hello"]["params"]) => void) | undefined;
   const helloPromise = new Promise<RunnerCalls["runner.hello"]["params"]>((resolve) => {
     helloResolve = resolve;
@@ -193,6 +208,7 @@ export async function startServerDouble(options: ServerDoubleOptions = {}): Prom
           list.push(params);
           statuses.set(params.jobId, list);
           settleWaiters();
+          return { grant: grantAnswers.get(params.jobId) };
         },
         "job.event": (params) => {
           const list = events.get(params.jobId) ?? [];
@@ -241,7 +257,18 @@ export async function startServerDouble(options: ServerDoubleOptions = {}): Prom
     // twice in a row hang, because the first socket's late close cleared the
     // second connection's peer. Look for this shape again before writing the
     // next socket adapter in this project.
-    socket.on("message", (data) => mine.receive(String(data)));
+    socket.on("message", (data) => {
+      const frame = String(data);
+      const parsed = JSON.parse(frame) as {
+        method?: string;
+        id?: number;
+        params?: { jobId?: string };
+      };
+      if (parsed.method === "job.status" && typeof parsed.id === "number" && parsed.params?.jobId) {
+        statusRequests.add(parsed.params.jobId);
+      }
+      mine.receive(frame);
+    });
     socket.on("close", () => {
       if (peer === mine) peer = undefined;
     });
@@ -282,6 +309,10 @@ export async function startServerDouble(options: ServerDoubleOptions = {}): Prom
     resumeWith: (jobId, point) => {
       resumePoints.set(jobId, point);
     },
+    answerStatusWith: (jobId, grant) => {
+      grantAnswers.set(jobId, grant);
+    },
+    sawStatusAsRequest: (jobId) => statusRequests.has(jobId),
     disconnectRunner: () => currentSocket?.terminate(),
     closeRunnerWith: (code, reason) => currentSocket?.close(code, reason),
     assign: (params) => connectedPeer().request("job.assign", params),

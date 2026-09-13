@@ -46,3 +46,39 @@ describe("a Job whose engine runs long", () => {
     expect((await double.completionFor("job-1")).outcome).toBe("complete");
   });
 });
+
+describe("cli#38: a fresh grant answered back on job.status", () => {
+  test("a Job completes normally when the server hands one back mid-round", async () => {
+    const double = await server();
+    const { engine, release } = blockingEngine();
+    const runner = await startRunner({ url: double.url, log: quiet, engine });
+    stopAll.push(() => runner.stop());
+
+    await double.helloReceived();
+    // Scripted before the assign, so even the first "preparing" status this
+    // Job sends comes back carrying it - the shape a server close to a Job's
+    // token expiring would answer with from the very start of a resumed round.
+    double.answerStatusWith("job-2", {
+      url: "https://github.com/acme/api.git",
+      baseBranch: "main",
+      branch: "crewbit/spec-2",
+      token: "fresh-token",
+      tokenExpiresAt: "2026-09-13T19:00:00Z",
+    });
+    const accepted = await double.assign({
+      jobId: "job-2",
+      runId: "run-2",
+      stage: "plan",
+      context: {},
+      harness: { prompt: "do the thing", maxTurns: 1 },
+      leaseSeconds: 1,
+    });
+    expect(accepted).toEqual({ accepted: true });
+
+    await double.waitForStatus("job-2", 1);
+
+    expect(double.sawStatusAsRequest("job-2")).toBe(true);
+    release();
+    expect((await double.completionFor("job-2")).outcome).toBe("complete");
+  });
+});

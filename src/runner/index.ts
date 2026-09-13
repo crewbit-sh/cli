@@ -16,7 +16,9 @@ import {
   type JobAssignParams,
   type JobCompleteParams,
   type JobStatus,
+  type JobStatusResult,
   PROTOCOL_VERSION,
+  type RepoGrant,
   RpcPeer,
   type RunnerCalls,
   type ServerCalls,
@@ -686,7 +688,20 @@ export async function startRunner(options: RunnerOptions): Promise<RunnerHandle>
       // Flush first, so the transcript the server holds never lags behind the
       // status it would be read against.
       batcher.flush();
-      peer.notify("job.status", { jobId: job.jobId, status: s, detail });
+      // cli#38: a request rather than a notification, so the server has a way
+      // to hand back a fresher grant before this Job's own expires. Applied to
+      // `job.repo` itself: every git call already reads that field fresh, so
+      // nothing downstream has to be told the token changed.
+      peer
+        .request("job.status", { jobId: job.jobId, status: s, detail })
+        .then((result) => {
+          job.repo = nextGrant(job.repo, result);
+        })
+        .catch(() => {
+          // The server can be gone, or this Job already released - what a
+          // notification would have let happen silently, so a rejected
+          // request does too.
+        });
     };
 
     status("preparing");
@@ -1055,6 +1070,25 @@ async function collect(workspace: string, names: string[]): Promise<Record<strin
  */
 function keepaliveMs(leaseSeconds = 3600): number {
   return Math.max(200, Math.floor((leaseSeconds * 1000) / 3));
+}
+
+/**
+ * cli#38: which grant a Job holds after a `job.status` answer, absent
+ * meaning nothing to change. A keepalive tick and a stage transition can
+ * both have a request in flight for the same Job, and their answers can
+ * land in either order, so only one fresher than what is already held ever
+ * replaces it - a reply from an earlier tick landing late can never put a
+ * spent token back in front of a live one.
+ */
+export function nextGrant(
+  current: RepoGrant | undefined,
+  answer: JobStatusResult,
+): RepoGrant | undefined {
+  if (!answer.grant) return current;
+  if (!current) return answer.grant;
+  return Date.parse(answer.grant.tokenExpiresAt) > Date.parse(current.tokenExpiresAt)
+    ? answer.grant
+    : current;
 }
 
 function opened(socket: WebSocket): Promise<void> {

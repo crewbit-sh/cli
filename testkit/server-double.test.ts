@@ -159,6 +159,36 @@ describe("what a runner reports mid-job", () => {
     await double.stop();
   });
 
+  test("job.status sent as a request comes back with the grant scripted for it", async () => {
+    const double = await startServerDouble();
+    const runner = await connectFakeRunner(double.url);
+    await hello(runner);
+    const grant = {
+      url: "https://github.com/acme/api.git",
+      baseBranch: "main",
+      branch: "crewbit/spec-1",
+      token: "fresh-token",
+      tokenExpiresAt: "2026-09-13T19:00:00Z",
+    };
+    double.answerStatusWith("job-4", grant);
+
+    const result = await runner.peer.request("job.status", { jobId: "job-4", status: "working" });
+
+    expect(result).toEqual({ grant });
+    await double.stop();
+  });
+
+  test("job.status with nothing scripted comes back with no grant", async () => {
+    const double = await startServerDouble();
+    const runner = await connectFakeRunner(double.url);
+    await hello(runner);
+
+    const result = await runner.peer.request("job.status", { jobId: "job-5", status: "working" });
+
+    expect(result).toEqual({ grant: undefined });
+    await double.stop();
+  });
+
   test("human.notify is recorded", async () => {
     const double = await startServerDouble();
     const runner = await connectFakeRunner(double.url);
