@@ -1,6 +1,6 @@
 import { parseArgs } from "node:util";
 import { createLogger, errorFields } from "../log.ts";
-import { type RunAck, renderRunState } from "./run.ts";
+import { printable, type RunProjection } from "./run.ts";
 import { stripTrailingSlashes, validateServerUrl } from "./server.ts";
 
 export const SPEC_USAGE = `  --project <id>     which Project's Specs, for \`list\`, from \`crewbit project list\`
@@ -82,13 +82,13 @@ export async function planSpec(
 }
 
 export type SpecRunResult =
-  | { ok: true; body: RunAck }
+  | { ok: true; body: RunProjection }
   | { ok: false; status: number; reason: string };
 
 /**
  * The fast path: the same Spec `plan` would resolve, driven from the start
- * rather than stopping to be planned. What comes back is the Run, so it prints
- * the way the four verbs under `crewbit run` do.
+ * rather than stopping to be planned. What comes back is the Run itself,
+ * projected the same way `GET /api/runs/:id` projects it (#299).
  */
 export async function runSpecNow(
   server: string,
@@ -98,7 +98,7 @@ export async function runSpecNow(
 ): Promise<SpecRunResult> {
   const { send = fetch } = options;
   const result = await postSpec(server, "run", ref, token, send);
-  return result.ok ? { ok: true, body: result.body as RunAck } : result;
+  return result.ok ? { ok: true, body: result.body as RunProjection } : result;
 }
 
 export function renderPlanned(body: { runId?: string }): string {
@@ -109,6 +109,13 @@ export function renderPlanned(body: { runId?: string }): string {
     `Read it with \`crewbit run view ${body.runId}\`.`,
     "Nothing is implemented until you approve the plan.",
   ].join("\n");
+}
+
+/** What the fast path prints: coding has already begun, so there is no plan gate to name. */
+export function renderStarted(runId: string | undefined): string {
+  if (!runId) return "Started.";
+  const id = printable(runId);
+  return [`Started: ${id}`, "", `Read it with \`crewbit run view ${id}\`.`].join("\n");
 }
 
 export function renderSpecs(sources: Listed[]): string {
@@ -216,7 +223,7 @@ export async function runSpec(argv: string[]): Promise<void> {
   if (verb === "list") {
     console.log(renderSpecs((result.body as { sources: Listed[] }).sources));
   } else if (verb === "code") {
-    console.log(renderRunState(result.body as RunAck));
+    console.log(renderStarted((result.body as RunProjection).run?.id));
   } else {
     console.log(renderPlanned(result.body as { runId?: string }));
   }

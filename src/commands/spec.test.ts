@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import type { RunProjection } from "./run.ts";
 import {
   type Fetch,
   fetchSpecs,
@@ -6,8 +7,37 @@ import {
   planSpec,
   renderPlanned,
   renderSpecs,
+  renderStarted,
   runSpecNow,
 } from "./spec.ts";
+
+const AT = "2026-08-24T12:00:00Z";
+
+function projection(over: Partial<RunProjection["run"]> = {}): RunProjection {
+  return {
+    run: {
+      id: "run_1",
+      state: "coding",
+      title: "add the health endpoint",
+      source: "acme/api",
+      externalKey: "12",
+      provider: "github",
+      reviewUrl: null,
+      updatedAt: AT,
+      costUsd: null,
+      jobState: "running",
+      jobStage: "code",
+      jobRunner: "runner_1",
+      lastStage: null,
+      lastTurns: null,
+      lastTurnsMax: null,
+      ...over,
+    },
+    transitions: [],
+    events: { lines: [], total: 0 },
+    artifacts: {},
+  };
+}
 
 describe("reading a Project's Specs off the server", () => {
   test("asks the right path with the project as a query and the credential as a bearer", async () => {
@@ -155,6 +185,26 @@ describe("what a started Run prints", () => {
   });
 });
 
+describe("what the fast path prints once the Run has opened", () => {
+  test("names the Run and how to read it, with no plan-gate line: coding has already begun", () => {
+    const printed = renderStarted("run_1");
+
+    expect(printed).toContain("run_1");
+    expect(printed).toContain("crewbit run view run_1");
+    expect(printed).not.toMatch(/approve/i);
+  });
+
+  test("says nothing broke when the server named no id", () => {
+    expect(renderStarted(undefined)).not.toContain("undefined");
+  });
+
+  test("strips control characters, since the id is the server's own", () => {
+    const printed = renderStarted("run_1\n\x1b[31mFAKE");
+
+    expect(printed).not.toContain("\n\x1b");
+  });
+});
+
 describe("running one Spec straight through", () => {
   test("posts the reference to the server's own run route, with the credential as a bearer", async () => {
     const asked: Array<{ url: string; init: RequestInit }> = [];
@@ -200,19 +250,14 @@ describe("running one Spec straight through", () => {
     expect(asked).toEqual(["https://app.crewbit.sh/api/specs/run"]);
   });
 
-  test("carries the Run the server started back", async () => {
+  test("carries the Run projection the server started back", async () => {
+    // #299: this route answers the same full projection every acting route
+    // does, not the flat {runId, state} it used to.
+    const body = projection();
     const send: Fetch = async () =>
-      ({
-        ok: true,
-        status: 200,
-        statusText: "",
-        json: async () => ({ runId: "run_1", state: "planning" }),
-      }) as Response;
+      ({ ok: true, status: 200, statusText: "", json: async () => body }) as Response;
 
-    expect(await runSpecNow("s", "a/b#1", "t", { send })).toEqual({
-      ok: true,
-      body: { runId: "run_1", state: "planning" },
-    });
+    expect(await runSpecNow("s", "a/b#1", "t", { send })).toEqual({ ok: true, body });
   });
 
   test("a refusal carries the server's words, which is the whole answer", async () => {

@@ -151,15 +151,41 @@ describe("driving one Run from a terminal", () => {
   });
 
   test("`spec run` starts one and says which Run it is", async () => {
+    // #299: this route answers the same full projection GET /api/runs/:id
+    // does, not a flat {runId, state}.
     seen = [];
-    answer = { status: 200, body: JSON.stringify({ runId: "run_9", state: "planning" }) };
+    answer = {
+      status: 200,
+      body: JSON.stringify({
+        run: {
+          id: "run_9",
+          state: "coding",
+          title: "add the health endpoint",
+          source: "acme/api",
+          externalKey: "12",
+          provider: "github",
+          reviewUrl: null,
+          updatedAt: "2026-08-24T12:00:00Z",
+          costUsd: null,
+          jobState: "running",
+          jobStage: "code",
+          jobRunner: "runner_1",
+          lastStage: null,
+          lastTurns: null,
+          lastTurnsMax: null,
+        },
+        transitions: [],
+        events: { lines: [], total: 0 },
+        artifacts: {},
+      }),
+    };
 
     const { code, out } = await crewbit("spec", "run", "acme/api#12", "--token", "crw_t");
 
     expect(seen[0]?.path).toBe("/api/specs/run");
     expect(JSON.parse(seen[0]?.body ?? "")).toEqual({ spec: "acme/api#12" });
     expect(out).toContain("run_9");
-    expect(out).toContain("planning");
+    expect(out).toContain("crewbit run view run_9");
     expect(code).toBe(0);
   });
 

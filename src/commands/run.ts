@@ -150,7 +150,7 @@ export async function actOnRun(
 }
 
 /** Strips control characters, so a run id or state a printed line carries cannot forge a newline or a terminal escape code. */
-function printable(text: string): string {
+export function printable(text: string): string {
   return text.replace(/\p{Cc}/gu, "");
 }
 
