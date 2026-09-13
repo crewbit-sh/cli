@@ -840,5 +840,70 @@ describe("rebasing onto a base that moved during the round", () => {
 
     expect(result.rebased).toBe(false);
     expect(await head(workspace)).toBe(before);
+    // Nothing rewrote the branch, so nothing needs forcing over what a plain
+    // push already reaches as a fast-forward.
+    const pushedResult = await pushed(workspace, repo);
+    expect(pushedResult.ok).toBe(true);
+  });
+
+  /**
+   * cli#39: a fresh branch never holds a lease - `pushed()` only advances one
+   * that already exists, and never creates the first (git.ts:46,90) - so a
+   * round with no keepalive tick reaches this rebase with none either way.
+   * Once something (the pre-round push, a keepalive tick, this test standing
+   * in for either) has put this Job's own un-rebased commit on the remote,
+   * the rebase above rewrites it into a sibling with a different sha, and a
+   * plain push of that sibling is a genuine non-fast-forward against a
+   * remote tip that is this runner's own work and not somebody else's.
+   */
+  test("a push after a clean rebase forces with the lease it read before rewriting, with no keepalive lease", async () => {
+    const origin = bareOrigin();
+    const { workspace, repo } = await workspaceOn(origin);
+
+    // The pre-round push: puts the branch on the remote before the engine
+    // writes anything. No lease yet - a fresh branch holds none.
+    await pushed(workspace, repo);
+
+    writeFileSync(join(workspace, "feature.ts"), "export const feature = 1;\n");
+    await commitAll(workspace, "add the feature");
+    // This Job's own commit reaches the remote before the rebase - a
+    // keepalive tick in production, a second call here. Still no lease.
+    await pushed(workspace, repo);
+
+    advanceBase(origin, { "README.md": "# a repository\nupdated\n" });
+
+    const rebase = await rebaseOntoFreshBase(workspace, repo);
+    expect(rebase.rebased).toBe(true);
+
+    const result = await pushed(workspace, repo);
+
+    expect(result.ok).toBe(true);
+    expect(await remoteHead(workspace, repo)).toBe(await head(workspace));
+  });
+
+  test("a foreign commit landing on the branch after the rebase's read still refuses", async () => {
+    const origin = bareOrigin();
+    const { workspace, repo } = await workspaceOn(origin);
+    await pushed(workspace, repo);
+
+    writeFileSync(join(workspace, "feature.ts"), "export const feature = 1;\n");
+    await commitAll(workspace, "add the feature");
+    await pushed(workspace, repo);
+
+    advanceBase(origin, { "README.md": "# a repository\nupdated\n" });
+    const rebase = await rebaseOntoFreshBase(workspace, repo);
+    expect(rebase.rebased).toBe(true);
+
+    // Lands on this Job's own branch after the rebase read the tip it forces
+    // against - not this runner's own history, so the lease refuses it
+    // rather than forcing over it.
+    const foreign = await workspaceOn(origin);
+    writeFileSync(join(foreign.workspace, "other.ts"), "export const other = 1;\n");
+    await commitAll(foreign.workspace, "foreign work");
+    sh(["push", origin.url, `HEAD:refs/heads/${repo.branch}`], foreign.workspace);
+
+    const result = await pushed(workspace, repo);
+
+    expect(result.ok).toBe(false);
   });
 });

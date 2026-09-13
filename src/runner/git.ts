@@ -151,6 +151,16 @@ export async function rebaseOntoFreshBase(
   const oldBase = await commitAt(BASE_REF, workspace);
   if (!freshBase || !oldBase || freshBase === oldBase) return { rebased: false };
 
+  // cli#39: read before the rebase moves HEAD. A rebase gives every replayed
+  // commit a new sha, so the branch's own remote tip - whatever push put it
+  // there, a keepalive tick or the one before the engine starts - is never an
+  // ancestor of the rewritten history, and a fresh branch never holds a lease
+  // to force the next push with (`pushed()` only advances one that already
+  // exists, and never creates the first). Without this, that next push is
+  // plain and refused as a false non-fast-forward the moment nothing else
+  // happens to force it.
+  const remoteTip = await remoteHead(workspace, repo);
+
   const rebased = await git(["rebase", "--onto", freshBase, oldBase, "HEAD"], workspace);
   if (rebased.code !== 0) {
     await git(["rebase", "--abort"], workspace);
@@ -160,6 +170,11 @@ export async function rebaseOntoFreshBase(
   // `commitsSince`, `diffSince` and `changedFiles` all read from here: left at
   // the old base, the base's own new commit would count as this Job's work.
   await git(["update-ref", BASE_REF, freshBase], workspace);
+  // `pushed()` forces with whatever this names, so the next push is a
+  // legitimate `--force-with-lease` against exactly the tip the rebase
+  // rewrote - and a foreign commit landing on the branch after this read
+  // still refuses, the same as any other stale lease.
+  if (remoteTip) await git(["update-ref", LEASE_REF, remoteTip], workspace);
   return { rebased: true };
 }
 
