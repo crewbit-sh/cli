@@ -77,6 +77,7 @@ export async function runRunner(argv: string[]): Promise<void> {
     // Two formats on one stdout would hand a collector mixed content, and on a
     // server that is the only record of what the agent did.
     onEvent: values.quiet ? undefined : transcriptLogger(log),
+    sweepWorkspaces: true,
   }).catch((cause: Error) => {
     // A refused upgrade surfaces here. A Bun stack trace tells a human nothing
     // about the one thing that is usually wrong, which is the credential.

@@ -378,6 +378,45 @@ async function ignoreLocally(workspace: string, names: string[]): Promise<void> 
 /** What the eval stage reads instead of running git itself. */
 export const DIFF_FILE = "diff.md";
 
+const JOB_PREFIX = "crewbit-job-";
+
+/** Long enough to read a kept workspace by hand; not forever. */
+const SWEEP_AFTER_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * `index.ts` keeps a workspace only when nothing acknowledged its completion,
+ * and that is worth keeping for a person to read, not indefinitely: a runner
+ * that has been up a while otherwise accumulates one per unacknowledged Job
+ * forever. Run once at startup, so a workspace the round in progress right
+ * now is using is never a candidate: nothing this young could be a leftover.
+ *
+ * `root` is `tmpdir()` in production and a scratch directory in tests, since
+ * this walks whatever is handed to it and a test pointed at the real one
+ * would be deleting other processes' work.
+ */
+export async function sweepStaleWorkspaces(log: Logger, root = tmpdir()): Promise<number> {
+  const entries = await readdir(root).catch(() => [] as string[]);
+  const cutoff = Date.now() - SWEEP_AFTER_MS;
+  let swept = 0;
+  for (const name of entries) {
+    if (!name.startsWith(JOB_PREFIX)) continue;
+    const path = resolve(root, name);
+    const info = await stat(path).catch(() => undefined);
+    if (info && info.mtimeMs < cutoff) {
+      await rm(path, { recursive: true, force: true });
+      swept++;
+    }
+  }
+  if (swept > 0) log.info("swept stale job workspaces", { swept });
+  return swept;
+}
+
+/** How many kept workspaces are sitting in the temp directory right now, for the log line that keeps one more. */
+export async function keptWorkspaceCount(root = tmpdir()): Promise<number> {
+  const entries = await readdir(root).catch(() => [] as string[]);
+  return entries.filter((name) => name.startsWith(JOB_PREFIX)).length;
+}
+
 /** Who the factory commits as. Recognisable in a blame, and not a person. */
 const COMMITTER = { name: "crewbit", email: "crewbit@users.noreply.github.com" };
 

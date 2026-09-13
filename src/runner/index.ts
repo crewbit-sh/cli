@@ -46,7 +46,7 @@ import { coalesceRateLimits, rateLimitIsSafe, rateLimitMessage } from "./rate-li
 import { retryable, stopReason } from "./reason.ts";
 import { runPrepare, runVerify } from "./verify.ts";
 import { waited } from "./wait.ts";
-import { prepareWorkspace } from "./workspace.ts";
+import { keptWorkspaceCount, prepareWorkspace, sweepStaleWorkspaces } from "./workspace.ts";
 
 export const RUNNER_VERSION = "0.11.0";
 /**
@@ -136,6 +136,13 @@ export type RunnerOptions = {
   onEvent?: (jobId: string, event: EngineEvent) => void;
   /** Defaults to JSON lines on stdout. A test passes one that captures instead. */
   log?: Logger;
+  /**
+   * Off by default so a test suite that starts dozens of runners against the
+   * real machine never deletes another process's leftovers as a side effect
+   * of running. `cli.ts`'s own `runner` command is the one caller that turns
+   * it on.
+   */
+  sweepWorkspaces?: boolean;
 };
 
 export type RunnerHandle = {
@@ -186,6 +193,15 @@ export async function startRunner(options: RunnerOptions): Promise<RunnerHandle>
    */
   let refusedSince: number | undefined;
 
+  // Not awaited before the handshake, the same reason `newestRelease` in
+  // `runner.ts` is not: this machine can hold tens of thousands of these, and
+  // a handshake that is about to be refused for a bad token should not wait
+  // behind a directory walk that has nothing to do with it. Awaited before the
+  // first-connect failure below rethrows, since that path ends in the caller's
+  // own `process.exit` — a sweep still running when the process dies never
+  // finishes and is unobservable, which is not "runs at startup".
+  const swept = options.sweepWorkspaces ? sweepStaleWorkspaces(log).catch(() => {}) : undefined;
+
   try {
     await connect();
   } catch (cause) {
@@ -199,6 +215,7 @@ export async function startRunner(options: RunnerOptions): Promise<RunnerHandle>
     stopped = true;
     clearTimeout(reconnectTimer);
     clearInterval(alive);
+    await swept;
     reconnectTimer = undefined;
     throw cause;
   }
@@ -923,6 +940,7 @@ export async function startRunner(options: RunnerOptions): Promise<RunnerHandle>
         job_id: job.jobId,
         stage: job.stage,
         path: workspace,
+        remaining: await keptWorkspaceCount(),
       });
     }
 

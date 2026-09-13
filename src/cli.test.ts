@@ -8,7 +8,7 @@
 
 import { describe, expect, test } from "bun:test";
 import { spawn } from "node:child_process";
-import { mkdtempSync } from "node:fs";
+import { existsSync, mkdtempSync, utimesSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -22,10 +22,19 @@ const CLI = new URL("cli.ts", import.meta.url).pathname;
 // UNREACHABLE is a loopback port nothing listens on, so a connection to it
 // fails the same way, fast, whether or not this machine can reach the internet.
 const CONFIG_DIR = mkdtempSync(join(tmpdir(), "crewbit-cli-test-"));
+// `crewbit runner` sweeps `crewbit-job-*` under this at startup (#36). Its own
+// TMPDIR, not this machine's: a spawned `runner` reading the real one would
+// walk and delete whatever this machine actually has sitting there.
+const RUNNER_TMPDIR = mkdtempSync(join(tmpdir(), "crewbit-cli-test-tmp-"));
 const UNREACHABLE = "ws://127.0.0.1:1";
 
 function cleanEnv(): NodeJS.ProcessEnv {
-  const env: NodeJS.ProcessEnv = { ...process.env, HOME: CONFIG_DIR, XDG_CONFIG_HOME: CONFIG_DIR };
+  const env: NodeJS.ProcessEnv = {
+    ...process.env,
+    HOME: CONFIG_DIR,
+    XDG_CONFIG_HOME: CONFIG_DIR,
+    TMPDIR: RUNNER_TMPDIR,
+  };
   for (const key of Object.keys(env)) {
     if (key.startsWith("CREWBIT_")) delete env[key];
   }
@@ -58,6 +67,22 @@ describe("what the binary is asked to do", () => {
     // all is the proof the word routed to the runner.
     expect(code).toBe(1);
     expect(out).toContain("no token given");
+  });
+
+  test("`runner` sweeps its own leftover job workspaces at startup (#36)", async () => {
+    const stale = mkdtempSync(join(RUNNER_TMPDIR, "crewbit-job-"));
+    const aDayAndAnHourAgo = new Date(Date.now() - 25 * 60 * 60 * 1000);
+    utimesSync(stale, aDayAndAnHourAgo, aDayAndAnHourAgo);
+    const fresh = mkdtempSync(join(RUNNER_TMPDIR, "crewbit-job-"));
+
+    // The connect failure this always ends in (nothing is listening on
+    // UNREACHABLE) is what proves the sweep ran to completion rather than
+    // being cut off mid-walk: `startRunner` awaits it before that path
+    // rethrows, precisely so this is observable at all once the process exits.
+    await run("runner", "--token", "t");
+
+    expect(existsSync(stale)).toBe(false);
+    expect(existsSync(fresh)).toBe(true);
   });
 
   test("the old form says what to type now instead of doing nothing", async () => {

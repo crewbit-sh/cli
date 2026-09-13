@@ -1,12 +1,20 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { spawn } from "node:child_process";
-import { cpSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import {
+  cpSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  rmSync,
+  utimesSync,
+  writeFileSync,
+} from "node:fs";
 import { readdir, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createLogger, type Logger } from "../log.ts";
 import { alreadyOnRemote, BASE_REF, commitAll, pushed } from "./git.ts";
-import { prepareWorkspace } from "./workspace.ts";
+import { prepareWorkspace, sweepStaleWorkspaces } from "./workspace.ts";
 
 const dirs: string[] = [];
 
@@ -765,6 +773,51 @@ describe("a branch that carries commits the base does not, whoever committed the
     // not, whoever made them.
     expect(await gitOut(["rev-parse", "HEAD"], workspace)).toBe(tip);
     expect(await readdir(workspace)).toContain("theirs.ts");
+  });
+});
+
+describe("sweeping leftover job workspaces", () => {
+  /** A day and an hour old, so a one-day cutoff is unambiguous either side of it. */
+  function backdate(path: string, hoursAgo: number): void {
+    const then = new Date(Date.now() - hoursAgo * 60 * 60 * 1000);
+    utimesSync(path, then, then);
+  }
+
+  test("removes one older than a day", async () => {
+    const root = scratch();
+    const stale = join(root, "crewbit-job-old1");
+    mkdirSync(stale);
+    backdate(stale, 25);
+    const { log } = reading();
+
+    const swept = await sweepStaleWorkspaces(log, root);
+
+    expect(swept).toBe(1);
+    expect(existsSync(stale)).toBe(false);
+  });
+
+  test("leaves one from today alone: it may be the round in progress right now", async () => {
+    const root = scratch();
+    const fresh = join(root, "crewbit-job-new1");
+    mkdirSync(fresh);
+    const { log } = reading();
+
+    const swept = await sweepStaleWorkspaces(log, root);
+
+    expect(swept).toBe(0);
+    expect(existsSync(fresh)).toBe(true);
+  });
+
+  test("never touches a directory that is not one of this binary's own", async () => {
+    const root = scratch();
+    const other = join(root, "something-else-old");
+    mkdirSync(other);
+    backdate(other, 48);
+    const { log } = reading();
+
+    await sweepStaleWorkspaces(log, root);
+
+    expect(existsSync(other)).toBe(true);
   });
 });
 
