@@ -150,11 +150,15 @@ export async function runSpec(argv: string[]): Promise<void> {
   });
 
   const log = createLogger("crewbit-spec");
-  const [verb, ref] = positionals;
+  const [rawVerb, ref] = positionals;
+  // `run` shipped as the fast path's name through 0.10.1 and is now `code`,
+  // kept working and never named back: a script written against the old word
+  // is not what this is for.
+  const verb = rawVerb === "run" ? "code" : rawVerb;
 
-  if (verb !== "list" && verb !== "plan" && verb !== "run") {
+  if (verb !== "list" && verb !== "plan" && verb !== "code") {
     log.error(
-      `no "${verb ?? ""}" here: it is \`crewbit spec list --project <id>\`, \`crewbit spec plan acme/api#12\` or \`crewbit spec run acme/api#12\``,
+      `no "${verb ?? ""}" here: it is \`crewbit spec list --project <id>\`, \`crewbit spec plan acme/api#12\` or \`crewbit spec code acme/api#12\``,
     );
     process.exit(1);
   }
@@ -190,7 +194,7 @@ export async function runSpec(argv: string[]): Promise<void> {
   try {
     if (verb === "list") {
       result = await fetchSpecs(values.server, values.project as string, token);
-    } else if (verb === "run") {
+    } else if (verb === "code") {
       result = await runSpecNow(values.server, ref as string, token);
     } else {
       result = await planSpec(values.server, ref as string, token);
@@ -211,7 +215,7 @@ export async function runSpec(argv: string[]): Promise<void> {
   }
   if (verb === "list") {
     console.log(renderSpecs((result.body as { sources: Listed[] }).sources));
-  } else if (verb === "run") {
+  } else if (verb === "code") {
     console.log(renderRunState(result.body as RunAck));
   } else {
     console.log(renderPlanned(result.body as { runId?: string }));

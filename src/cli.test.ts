@@ -169,9 +169,16 @@ describe("what the binary is asked to do", () => {
     {
       // The verb it is, and not `plan`'s form: the unknown-verb message names
       // that one, so a wrong hint here would read as a right one.
-      name: "`spec run` with no reference says the exact form it wants",
+      name: "`spec code` with no reference says the exact form it wants",
+      args: ["spec", "code"],
+      contains: "crewbit spec code acme/api#12",
+    },
+    {
+      // `run` is the old word, kept working and never named back: the message
+      // still says `code`, whichever of the two got it here.
+      name: "the old `spec run` still routes, and still says `code`",
       args: ["spec", "run"],
-      contains: "crewbit spec run acme/api#12",
+      contains: "crewbit spec code acme/api#12",
     },
     {
       name: "`spec` with no verb names the ones it has",
@@ -304,7 +311,9 @@ describe("what the binary is asked to do", () => {
     expect(out).toContain("crewbit project view <id>");
     expect(out).toContain("crewbit spec list");
     expect(out).toContain("crewbit spec plan");
-    expect(out).toContain("crewbit spec run");
+    expect(out).toContain("crewbit spec code");
+    // `run` is a working alias, kept quiet: naming it here would advertise it.
+    expect(out).not.toContain("spec run");
   });
 
   test("`run view <id>` refuses --events that is not a non-negative whole number", async () => {

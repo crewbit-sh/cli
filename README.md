@@ -44,7 +44,7 @@ Every command takes the same `--token`, `--server` and `--output json` as
 | --- | --- |
 | `crewbit spec list --project <id>` | the Specs a Project's sources are offering |
 | `crewbit spec plan <ref>` | start planning one, as `acme/api#12` |
-| `crewbit spec run <ref>` | the fast path: start one running |
+| `crewbit spec code <ref>` | the fast path: start one running |
 | `crewbit run list` | the org's live Runs, most recently updated first |
 | `crewbit run view <id>` | read one Run for investigation |
 | `crewbit run approve <id>` | answer the plan gate: the code stage runs next |
