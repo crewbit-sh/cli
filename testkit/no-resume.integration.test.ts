@@ -12,23 +12,11 @@
  * change - so an older server can still send it. What changes here is that
  * the runner never acts on it again, on the first attempt or on a retry.
  */
-import { afterEach, describe, expect, test } from "bun:test";
-import { createLogger, fakeEngine, startRunner } from "../src/index.ts";
-import { type ServerDouble, startServerDouble } from "./server-double.ts";
+import { describe, expect, test } from "bun:test";
+import { fakeEngine, startRunner } from "../src/index.ts";
+import { integrationHarness } from "./support/harness.ts";
 
-const quiet = createLogger("test", () => {});
-const stopAll: Array<() => void | Promise<void>> = [];
-
-afterEach(async () => {
-  for (const stop of stopAll.reverse()) await stop();
-  stopAll.length = 0;
-});
-
-async function server(): Promise<ServerDouble> {
-  const double = await startServerDouble();
-  stopAll.push(() => double.stop());
-  return double;
-}
+const { quiet, stopAll, server } = integrationHarness();
 
 const OLD_SESSION = "a-session-from-a-workspace-long-since-deleted";
 

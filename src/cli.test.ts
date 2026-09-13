@@ -91,64 +91,100 @@ describe("what the binary is asked to do", () => {
     expect(out).toContain("crewbit runner");
   });
 
-  test("`project` routes, and says what it is missing rather than the usage", async () => {
-    const { code, out, err } = await run("project", "list");
+  /**
+   * The shape every one of these shares: a word or two that routes somewhere,
+   * refused before a token is even asked for, naming what stopped it. #S8785:
+   * one test body against a table reads as one thing to SonarCloud's clone
+   * detector, where fifteen near-identical bodies read as fourteen repeats of
+   * the first.
+   */
+  const ROUTES: Array<{ name: string; args: string[]; contains: string }> = [
+    {
+      name: "`project` routes, and says what it is missing rather than the usage",
+      args: ["project", "list"],
+      contains: "no token given",
+    },
+    {
+      name: "`project` with no verb names the two it has",
+      args: ["project"],
+      contains: "crewbit project list",
+    },
+    {
+      name: "`project view` with no id says so rather than listing everything",
+      args: ["project", "view"],
+      contains: "no Project id given",
+    },
+    {
+      name: "`run` is a noun with verbs now, and `view` is the one that reads",
+      args: ["run", "view"],
+      contains: "no Run id given",
+    },
+    {
+      // `crewbit run <id>` shipped in v0.5.0 and is gone. An id is not a verb,
+      // so it is refused by name rather than treated as one.
+      name: "the old `run <id>` says what to type instead of reading a Run named view",
+      args: ["run", "run_abc123"],
+      contains: "crewbit run view",
+    },
+    {
+      name: "`run approve` routes, and asks for the id before the credential",
+      args: ["run", "approve"],
+      contains: "no Run id given",
+    },
+    {
+      name: "a verb `run` does not have names the ones it does",
+      args: ["run", "merge", "run_1"],
+      contains: "approve",
+    },
+    {
+      name: "`run answer` asks for the id before the credential, like the gates do",
+      args: ["run", "answer"],
+      contains: "no Run id given",
+    },
+    {
+      name: "`run cancel` routes, and asks for the id first",
+      args: ["run", "cancel"],
+      contains: "no Run id given",
+    },
+    {
+      name: "`run judge` routes, and asks for the id first",
+      args: ["run", "judge"],
+      contains: "no Run id given",
+    },
+    {
+      name: "`run now` routes, and asks for the id first",
+      args: ["run", "now"],
+      contains: "no Run id given",
+    },
+    {
+      name: "`spec list` routes, and asks for the Project before the credential",
+      args: ["spec", "list"],
+      contains: "no Project given",
+    },
+    {
+      name: "`spec plan` with no reference says the exact form it wants",
+      args: ["spec", "plan"],
+      contains: "acme/api#12",
+    },
+    {
+      // The verb it is, and not `plan`'s form: the unknown-verb message names
+      // that one, so a wrong hint here would read as a right one.
+      name: "`spec run` with no reference says the exact form it wants",
+      args: ["spec", "run"],
+      contains: "crewbit spec run acme/api#12",
+    },
+    {
+      name: "`spec` with no verb names the ones it has",
+      args: ["spec"],
+      contains: "crewbit spec list",
+    },
+  ];
 
-    // No token anywhere, so it stops before dialling. Reaching this message at
-    // all is the proof the word routed.
+  test.each(ROUTES)("$name", async ({ args, contains }) => {
+    const { code, out, err } = await run(...args);
+
     expect(code).toBe(1);
-    expect(`${out}${err}`).toContain("no token given");
-  });
-
-  test("`project` with no verb names the two it has", async () => {
-    const { code, out, err } = await run("project");
-
-    expect(code).toBe(1);
-    expect(`${out}${err}`).toContain("crewbit project list");
-  });
-
-  test("`project view` with no id says so rather than listing everything", async () => {
-    const { code, out, err } = await run("project", "view");
-
-    expect(code).toBe(1);
-    expect(`${out}${err}`).toContain("no Project id given");
-  });
-
-  test("`run` is a noun with verbs now, and `view` is the one that reads", async () => {
-    const { code, out, err } = await run("run", "view");
-
-    expect(code).toBe(1);
-    expect(`${out}${err}`).toContain("no Run id given");
-  });
-
-  test("the old `run <id>` says what to type instead of reading a Run named view", async () => {
-    // `crewbit run <id>` shipped in v0.5.0 and is gone. An id is not a verb, so
-    // it is refused by name rather than treated as one.
-    const { code, out, err } = await run("run", "run_abc123");
-
-    expect(code).toBe(1);
-    expect(`${out}${err}`).toContain("crewbit run view");
-  });
-
-  test("`run approve` routes, and asks for the id before the credential", async () => {
-    const { code, out, err } = await run("run", "approve");
-
-    expect(code).toBe(1);
-    expect(`${out}${err}`).toContain("no Run id given");
-  });
-
-  test("a verb `run` does not have names the ones it does", async () => {
-    const { code, out, err } = await run("run", "merge", "run_1");
-
-    expect(code).toBe(1);
-    expect(`${out}${err}`).toContain("approve");
-  });
-
-  test("`run answer` asks for the id before the credential, like the gates do", async () => {
-    const { code, out, err } = await run("run", "answer");
-
-    expect(code).toBe(1);
-    expect(`${out}${err}`).toContain("no Run id given");
+    expect(`${out}${err}`).toContain(contains);
   });
 
   test("`run answer` with no data at all says which flag to pass", async () => {
@@ -185,55 +221,40 @@ describe("what the binary is asked to do", () => {
     expect(`${out}${err}`).not.toContain("could not reach the server");
   });
 
-  test("`run cancel` routes, and asks for the id first", async () => {
-    const { code, out, err } = await run("run", "cancel");
+  test('`run answer --file` that walks out with ".." is refused before it is read', async () => {
+    const { code, out, err } = await run(
+      "run",
+      "answer",
+      "run_1",
+      "--token",
+      "t",
+      "--file",
+      "../../etc/passwd",
+    );
 
     expect(code).toBe(1);
-    expect(`${out}${err}`).toContain("no Run id given");
+    // Distinct from the generic "could not read <path>" of a file that is
+    // simply missing: that message would also contain "..", so what proves
+    // this is the guard and not a lucky ENOENT is the wording itself.
+    expect(`${out}${err}`).toContain("must not");
+    expect(`${out}${err}`).not.toContain("could not read");
+    expect(`${out}${err}`).not.toContain("could not reach the server");
   });
 
-  test("`run judge` routes, and asks for the id first", async () => {
-    const { code, out, err } = await run("run", "judge");
+  test("`run cancel` with everything it needs is refused for a --server that is not http or https", async () => {
+    const { code, out, err } = await run("run", "cancel", "run_1", "--token", "t");
 
     expect(code).toBe(1);
-    expect(`${out}${err}`).toContain("no Run id given");
+    expect(`${out}${err}`).toContain("--server");
+    expect(`${out}${err}`).toMatch(/http/i);
   });
 
-  test("`run now` routes, and asks for the id first", async () => {
-    const { code, out, err } = await run("run", "now");
+  test("`project list` with everything it needs is refused for a --server that is not http or https", async () => {
+    const { code, out, err } = await run("project", "list", "--token", "t");
 
     expect(code).toBe(1);
-    expect(`${out}${err}`).toContain("no Run id given");
-  });
-
-  test("`spec list` routes, and asks for the Project before the credential", async () => {
-    const { code, out, err } = await run("spec", "list");
-
-    expect(code).toBe(1);
-    expect(`${out}${err}`).toContain("no Project given");
-  });
-
-  test("`spec plan` with no reference says the exact form it wants", async () => {
-    const { code, out, err } = await run("spec", "plan");
-
-    expect(code).toBe(1);
-    expect(`${out}${err}`).toContain("acme/api#12");
-  });
-
-  test("`spec run` with no reference says the exact form it wants", async () => {
-    // The verb it is, and not `plan`'s form: the unknown-verb message names
-    // that one, so a wrong hint here would read as a right one.
-    const { code, out, err } = await run("spec", "run");
-
-    expect(code).toBe(1);
-    expect(`${out}${err}`).toContain("crewbit spec run acme/api#12");
-  });
-
-  test("`spec` with no verb names the ones it has", async () => {
-    const { code, out, err } = await run("spec");
-
-    expect(code).toBe(1);
-    expect(`${out}${err}`).toContain("crewbit spec list");
+    expect(`${out}${err}`).toContain("--server");
+    expect(`${out}${err}`).toMatch(/http/i);
   });
 
   test("--version answers without being told which command", async () => {

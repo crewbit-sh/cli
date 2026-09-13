@@ -1,5 +1,6 @@
 import { parseArgs } from "node:util";
 import { createLogger, errorFields } from "../log.ts";
+import { stripTrailingSlashes, validateServerUrl } from "./server.ts";
 
 export const PROJECT_USAGE = `  --token <token>    credential minted on the server's credentials page, or $CREWBIT_TOKEN
   --server <url>     where the Project lives (default https://app.crewbit.sh)
@@ -31,7 +32,7 @@ async function read<T>(
   token: string,
   get: Fetch,
 ): Promise<Fetched<T>> {
-  const url = `${server.replace(/\/+$/, "")}${path}`;
+  const url = `${stripTrailingSlashes(server)}${path}`;
   const response = await get(url, { headers: { authorization: `Bearer ${token}` } });
   if (!response.ok) {
     const reason = await response.text().catch(() => response.statusText);
@@ -129,6 +130,12 @@ export async function runProject(argv: string[]): Promise<void> {
 
   if (values.output !== "ai_agent" && values.output !== "json") {
     log.error(`no "${values.output}" output: it is ai_agent or json`);
+    process.exit(1);
+  }
+
+  const server = validateServerUrl(values.server);
+  if (!server.ok) {
+    log.error(server.message);
     process.exit(1);
   }
 

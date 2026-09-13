@@ -435,21 +435,6 @@ describe("a workspace for work that already started", () => {
     expect((await pushed(second.workspace, second.repo)).ok).toBe(true);
     expect(await remoteHead(second.workspace, second.repo)).toBe(await head(second.workspace));
   });
-
-  test("and a second push from the continued workspace lands", async () => {
-    const origin = bareOrigin();
-    const first = await workspaceOn(origin);
-    writeFileSync(join(first.workspace, "app.ts"), "export const answer = 43;\n");
-    await commitAll(first.workspace, "one");
-    await pushed(first.workspace, first.repo);
-
-    const second = await workspaceOn(origin);
-    writeFileSync(join(second.workspace, "app.ts"), "export const answer = 44;\n");
-    await commitAll(second.workspace, "two");
-
-    expect((await pushed(second.workspace, second.repo)).ok).toBe(true);
-    expect(await remoteHead(second.workspace, second.repo)).toBe(await head(second.workspace));
-  });
 });
 
 describe("what a commit must not sweep up", () => {

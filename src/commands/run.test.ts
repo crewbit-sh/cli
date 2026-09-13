@@ -20,6 +20,16 @@ const answering =
   async () =>
     ({ ok, status, statusText: "", json: async () => body, text: async () => "" }) as Response;
 
+/** Records the URLs a `Fetch` was called with, and answers every call with `body`. */
+function urlSpy(body: unknown = {}): { asked: string[]; fetch: Fetch } {
+  const asked: string[] = [];
+  const fetch: Fetch = async (url) => {
+    asked.push(url);
+    return { ok: true, json: async () => body } as Response;
+  };
+  return { asked, fetch };
+}
+
 describe("reading one Run off the server", () => {
   test("asks the right path with the credential as a bearer token", async () => {
     const asked: Array<{ url: string; headers: unknown }> = [];
@@ -39,11 +49,7 @@ describe("reading one Run off the server", () => {
   });
 
   test("a trailing slash on the server does not double up", async () => {
-    const asked: string[] = [];
-    const get: Fetch = async (url) => {
-      asked.push(url);
-      return { ok: true, json: async () => ({}) } as Response;
-    };
+    const { asked, fetch: get } = urlSpy();
 
     await fetchRun("https://app.crewbit.sh/", "run_1", "crw_abc", { get });
 
@@ -51,11 +57,7 @@ describe("reading one Run off the server", () => {
   });
 
   test("asks for no events at all when none is asked for", async () => {
-    const asked: string[] = [];
-    const get: Fetch = async (url) => {
-      asked.push(url);
-      return { ok: true, json: async () => ({}) } as Response;
-    };
+    const { asked, fetch: get } = urlSpy();
 
     await fetchRun("s", "r", "t", { get });
 
@@ -63,11 +65,7 @@ describe("reading one Run off the server", () => {
   });
 
   test("--events becomes ?limit= on the request", async () => {
-    const asked: string[] = [];
-    const get: Fetch = async (url) => {
-      asked.push(url);
-      return { ok: true, json: async () => ({}) } as Response;
-    };
+    const { asked, fetch: get } = urlSpy();
 
     await fetchRun("s", "r", "t", { events: 50, get });
 
@@ -106,11 +104,7 @@ describe("listing the org's live Runs", () => {
   });
 
   test("a trailing slash on the server does not double up", async () => {
-    const asked: string[] = [];
-    const get: Fetch = async (url) => {
-      asked.push(url);
-      return { ok: true, json: async () => ({ runs: [] }) } as Response;
-    };
+    const { asked, fetch: get } = urlSpy({ runs: [] });
 
     await fetchRuns("https://app.crewbit.sh/", "t", { get });
 
@@ -118,11 +112,7 @@ describe("listing the org's live Runs", () => {
   });
 
   test("--limit becomes ?limit= on the request", async () => {
-    const asked: string[] = [];
-    const get: Fetch = async (url) => {
-      asked.push(url);
-      return { ok: true, json: async () => ({ runs: [] }) } as Response;
-    };
+    const { asked, fetch: get } = urlSpy({ runs: [] });
 
     await fetchRuns("s", "t", { limit: 5, get });
 
@@ -464,11 +454,7 @@ describe("acting on a Run", () => {
   });
 
   test("`judge` posts to the Run's own judge route", async () => {
-    const asked: string[] = [];
-    const send: Fetch = async (url) => {
-      asked.push(url);
-      return { ok: true, json: async () => ({ runId: "run_1", state: "evaluating" }) } as Response;
-    };
+    const { asked, fetch: send } = urlSpy({ runId: "run_1", state: "evaluating" });
 
     await actOnRun("s", "run_1", "judge", "t", { send });
 
@@ -476,11 +462,7 @@ describe("acting on a Run", () => {
   });
 
   test("`now` is `run-now` on the wire, which is the route the server documents", async () => {
-    const asked: string[] = [];
-    const send: Fetch = async (url) => {
-      asked.push(url);
-      return { ok: true, json: async () => ({ runId: "run_1", state: "coding" }) } as Response;
-    };
+    const { asked, fetch: send } = urlSpy({ runId: "run_1", state: "coding" });
 
     await actOnRun("s", "run_1", "run-now", "t", { send });
 
@@ -488,11 +470,7 @@ describe("acting on a Run", () => {
   });
 
   test("an id with a character that needs escaping stays one path segment", async () => {
-    const asked: string[] = [];
-    const send: Fetch = async (url) => {
-      asked.push(url);
-      return { ok: true, json: async () => ({}) } as Response;
-    };
+    const { asked, fetch: send } = urlSpy();
 
     await actOnRun("s", "a/b", "cancel", "t", { send });
 
@@ -500,11 +478,7 @@ describe("acting on a Run", () => {
   });
 
   test("a trailing slash on the server does not double up", async () => {
-    const asked: string[] = [];
-    const send: Fetch = async (url) => {
-      asked.push(url);
-      return { ok: true, json: async () => ({}) } as Response;
-    };
+    const { asked, fetch: send } = urlSpy();
 
     await actOnRun("https://app.crewbit.sh/", "run_1", "judge", "t", { send });
 
@@ -555,6 +529,14 @@ describe("what an acted-on Run prints", () => {
 
     expect(printed).toContain("run_1");
     expect(printed).toMatch(/no state/i);
+  });
+
+  test("strips control characters from the printed id, so a crafted one cannot forge a line or an escape code", () => {
+    const printed = renderRunState({}, "run_1\n\x1b[31mFAKE LINE");
+
+    expect(printed).not.toContain("\n");
+    expect(printed).not.toContain("\x1b");
+    expect(printed).toContain("run_1");
   });
 });
 

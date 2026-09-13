@@ -12,24 +12,12 @@
  * runner's own decision, and the completion carrying the last attempt's words
  * arrives over the wire this double already speaks.
  */
-import { afterEach, describe, expect, test } from "bun:test";
-import { createLogger, fakeEngine, startRunner } from "../src/index.ts";
-import { type ServerDouble, startServerDouble } from "./server-double.ts";
+import { describe, expect, test } from "bun:test";
+import { fakeEngine, startRunner } from "../src/index.ts";
+import { integrationHarness } from "./support/harness.ts";
 import { recordingLog } from "./support/recording-log.ts";
 
-const quiet = createLogger("test", () => {});
-const stopAll: Array<() => void | Promise<void>> = [];
-
-afterEach(async () => {
-  for (const stop of stopAll.reverse()) await stop();
-  stopAll.length = 0;
-});
-
-async function server(): Promise<ServerDouble> {
-  const double = await startServerDouble();
-  stopAll.push(() => double.stop());
-  return double;
-}
+const { quiet, stopAll, server } = integrationHarness();
 
 /**
  * A real turn budget, not one. The failure being retried reports `num_turns: 1`,

@@ -1,6 +1,7 @@
 import { parseArgs } from "node:util";
 import { createLogger, errorFields } from "../log.ts";
 import { type RunAck, renderRunState } from "./run.ts";
+import { stripTrailingSlashes, validateServerUrl } from "./server.ts";
 
 export const SPEC_USAGE = `  --project <id>     which Project's Specs, for \`list\`, from \`crewbit project list\`
   --token <token>    credential minted on the server's credentials page, or $CREWBIT_TOKEN
@@ -27,7 +28,7 @@ export async function fetchSpecs(
 ): Promise<FetchSpecsResult> {
   const { get = fetch } = options;
   const query = new URLSearchParams({ project: projectId });
-  const url = `${server.replace(/\/+$/, "")}/api/specs?${query}`;
+  const url = `${stripTrailingSlashes(server)}/api/specs?${query}`;
   const response = await get(url, { headers: { authorization: `Bearer ${token}` } });
   if (!response.ok) {
     const reason = await response.text().catch(() => response.statusText);
@@ -52,7 +53,7 @@ async function postSpec(
   token: string,
   send: Fetch,
 ): Promise<{ ok: true; body: unknown } | { ok: false; status: number; reason: string }> {
-  const response = await send(`${server.replace(/\/+$/, "")}/api/specs/${route}`, {
+  const response = await send(`${stripTrailingSlashes(server)}/api/specs/${route}`, {
     method: "POST",
     headers: { "content-type": "application/json", authorization: `Bearer ${token}` },
     body: JSON.stringify({ spec: ref }),
@@ -179,14 +180,21 @@ export async function runSpec(argv: string[]): Promise<void> {
     process.exit(1);
   }
 
+  const server = validateServerUrl(values.server);
+  if (!server.ok) {
+    log.error(server.message);
+    process.exit(1);
+  }
+
   let result: FetchSpecsResult | PlanResult | SpecRunResult;
   try {
-    result =
-      verb === "list"
-        ? await fetchSpecs(values.server, values.project as string, token)
-        : verb === "run"
-          ? await runSpecNow(values.server, ref as string, token)
-          : await planSpec(values.server, ref as string, token);
+    if (verb === "list") {
+      result = await fetchSpecs(values.server, values.project as string, token);
+    } else if (verb === "run") {
+      result = await runSpecNow(values.server, ref as string, token);
+    } else {
+      result = await planSpec(values.server, ref as string, token);
+    }
   } catch (cause) {
     log.error("could not reach the server", { url: values.server, ...errorFields(cause) });
     process.exit(1);
@@ -201,11 +209,11 @@ export async function runSpec(argv: string[]): Promise<void> {
     console.log(JSON.stringify(result.body, null, 2));
     return;
   }
-  console.log(
-    verb === "list"
-      ? renderSpecs((result.body as { sources: Listed[] }).sources)
-      : verb === "run"
-        ? renderRunState(result.body as RunAck)
-        : renderPlanned(result.body as { runId?: string }),
-  );
+  if (verb === "list") {
+    console.log(renderSpecs((result.body as { sources: Listed[] }).sources));
+  } else if (verb === "run") {
+    console.log(renderRunState(result.body as RunAck));
+  } else {
+    console.log(renderPlanned(result.body as { runId?: string }));
+  }
 }

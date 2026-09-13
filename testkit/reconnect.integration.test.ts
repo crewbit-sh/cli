@@ -12,26 +12,15 @@
  * runner's half of that case is here, as the `lastSeq` the second handshake
  * declares.
  */
-import { afterEach, describe, expect, test } from "bun:test";
-import { createLogger, type Engine, startRunner } from "../src/index.ts";
-import { type ServerDouble, startServerDouble } from "./server-double.ts";
+import { describe, expect, test } from "bun:test";
+import { type Engine, startRunner } from "../src/index.ts";
+import type { ServerDouble } from "./server-double.ts";
 import { blockingEngine } from "./support/blocking-engine.ts";
+import { integrationHarness } from "./support/harness.ts";
 import { recordingLog } from "./support/recording-log.ts";
 
 /** These tests drop connections on purpose, and the logs are not what they assert. */
-const quiet = createLogger("test", () => {});
-const stopAll: Array<() => void | Promise<void>> = [];
-
-afterEach(async () => {
-  for (const stop of stopAll.reverse()) await stop();
-  stopAll.length = 0;
-});
-
-async function server(): Promise<ServerDouble> {
-  const double = await startServerDouble();
-  stopAll.push(() => double.stop());
-  return double;
-}
+const { quiet, stopAll, server } = integrationHarness();
 
 async function runnerOn(double: ServerDouble, engine: Engine, log = quiet) {
   const runner = await startRunner({

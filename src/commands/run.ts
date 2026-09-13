@@ -1,6 +1,8 @@
 import { readFileSync } from "node:fs";
+import { normalize, sep } from "node:path";
 import { parseArgs } from "node:util";
 import { createLogger, errorFields } from "../log.ts";
+import { stripTrailingSlashes, validateServerUrl } from "./server.ts";
 
 export const RUN_USAGE = `  --reason <text>    why, for \`reject\`, and it is what the next plan reads
   --data <json>      the answer itself, for \`answer\`, as a JSON object
@@ -32,7 +34,7 @@ export async function fetchRun(
 ): Promise<FetchRunResult> {
   const { events, get = fetch } = options;
   const path = `/api/runs/${encodeURIComponent(id)}`;
-  const url = `${server.replace(/\/+$/, "")}${path}${events !== undefined ? `?limit=${events}` : ""}`;
+  const url = `${stripTrailingSlashes(server)}${path}${events !== undefined ? `?limit=${events}` : ""}`;
   const response = await get(url, { headers: { authorization: `Bearer ${token}` } });
   if (!response.ok) {
     const reason = await response.text().catch(() => response.statusText);
@@ -55,7 +57,7 @@ export async function fetchRuns(
   options: { limit?: number; get?: Fetch } = {},
 ): Promise<FetchRunsResult> {
   const { limit, get = fetch } = options;
-  const url = `${server.replace(/\/+$/, "")}/api/runs${limit !== undefined ? `?limit=${limit}` : ""}`;
+  const url = `${stripTrailingSlashes(server)}/api/runs${limit !== undefined ? `?limit=${limit}` : ""}`;
   const response = await get(url, { headers: { authorization: `Bearer ${token}` } });
   if (!response.ok) {
     const reason = await response.text().catch(() => response.statusText);
@@ -84,7 +86,7 @@ async function postToRun(
   body: Record<string, unknown>,
   send: Fetch,
 ): Promise<{ ok: true; body: unknown } | { ok: false; status: number; reason: string }> {
-  const url = `${server.replace(/\/+$/, "")}/api/runs/${encodeURIComponent(id)}/${route}`;
+  const url = `${stripTrailingSlashes(server)}/api/runs/${encodeURIComponent(id)}/${route}`;
   const response = await send(url, {
     method: "POST",
     headers: { "content-type": "application/json", authorization: `Bearer ${token}` },
@@ -147,6 +149,11 @@ export async function actOnRun(
   return result.ok ? { ok: true, body: result.body as RunAck } : result;
 }
 
+/** Strips control characters, so a run id or state a printed line carries cannot forge a newline or a terminal escape code. */
+function printable(text: string): string {
+  return text.replace(/\p{Cc}/gu, "");
+}
+
 /**
  * The line all five of these print: which Run, and what the server says it is
  * now. The id is echoed from the request when the body names none, so `cancel`
@@ -154,7 +161,8 @@ export async function actOnRun(
  */
 export function renderRunState(body: RunAck, asked?: string): string {
   const id = body.runId ?? body.id ?? asked ?? "the Run";
-  return `${id}: ${body.state ?? "the server named no state"}`;
+  const state = body.state ?? "the server named no state";
+  return `${printable(id)}: ${printable(state)}`;
 }
 
 export type ParsedAnswer =
@@ -403,6 +411,10 @@ export async function runRun(argv: string[]): Promise<void> {
     }
     let text = values.data;
     if (text === undefined && values.file !== undefined) {
+      if (normalize(values.file).split(sep).includes("..")) {
+        log.error(`--file must not walk out of a directory with "..": "${values.file}"`);
+        process.exit(1);
+      }
       try {
         text = readFileSync(values.file, "utf8");
       } catch (cause) {
@@ -440,15 +452,25 @@ export async function runRun(argv: string[]): Promise<void> {
     }
   }
 
+  const server = validateServerUrl(values.server);
+  if (!server.ok) {
+    log.error(server.message);
+    process.exit(1);
+  }
+
   let result: FetchRunResult | FetchRunsResult | GateResult | ActionResult;
   try {
-    result = gate
-      ? await answerGate(values.server, id as string, gate, token, { reason: values.reason })
-      : action
-        ? await actOnRun(values.server, id as string, action, token, { data })
-        : verb === "list"
-          ? await fetchRuns(values.server, token, { limit })
-          : await fetchRun(values.server, id as string, token, { events });
+    if (gate) {
+      result = await answerGate(values.server, id as string, gate, token, {
+        reason: values.reason,
+      });
+    } else if (action) {
+      result = await actOnRun(values.server, id as string, action, token, { data });
+    } else if (verb === "list") {
+      result = await fetchRuns(values.server, token, { limit });
+    } else {
+      result = await fetchRun(values.server, id as string, token, { events });
+    }
   } catch (cause) {
     log.error("could not reach the server", { url: values.server, ...errorFields(cause) });
     process.exit(1);

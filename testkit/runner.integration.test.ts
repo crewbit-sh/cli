@@ -3,24 +3,12 @@
  * own tests use: this file is where a failure means the runner broke, not
  * the double.
  */
-import { afterEach, describe, expect, test } from "bun:test";
-import { createLogger, startRunner } from "../src/index.ts";
-import { type ServerDouble, startServerDouble } from "./server-double.ts";
+import { describe, expect, test } from "bun:test";
+import { startRunner } from "../src/index.ts";
 import { blockingEngine } from "./support/blocking-engine.ts";
+import { integrationHarness } from "./support/harness.ts";
 
-const quiet = createLogger("test", () => {});
-const stopAll: Array<() => void | Promise<void>> = [];
-
-afterEach(async () => {
-  for (const stop of stopAll.reverse()) await stop();
-  stopAll.length = 0;
-});
-
-async function server(): Promise<ServerDouble> {
-  const double = await startServerDouble();
-  stopAll.push(() => double.stop());
-  return double;
-}
+const { quiet, stopAll, server } = integrationHarness();
 
 describe("a Job whose engine runs long", () => {
   test("the runner sends job.status on its own, without being told, while it works", async () => {
