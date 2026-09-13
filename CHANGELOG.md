@@ -6,6 +6,18 @@ Upgrading is replacing the binary and starting it again. Stop the old one once
 and it finishes what it is holding before it exits, so an upgrade costs you
 nothing that was in flight. Stop it a second time and it exits straight away.
 
+## 0.11.0
+
+### Added
+
+- the fast path is now `crewbit spec code`
+
+### Fixed
+
+- run answer|cancel|judge|now print the Run's real state again
+- --server and --file are validated at the sink, not just before it
+- the fast path prints the Run it started, not "the server named no state"
+
 ## 0.10.1
 
 ### Fixed
