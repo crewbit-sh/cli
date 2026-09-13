@@ -285,6 +285,68 @@ describe("the push guard", () => {
   });
 });
 
+describe("cli#37: a stale lease left by this runner's own keepalive", () => {
+  /**
+   * The keepalive pushes the same ref a later push does, on its own timer,
+   * independently of that later push's own lease read. Landing that push
+   * directly rather than through `pushed()` reproduces exactly the drift a
+   * race between the two would leave: `real`'s own lease still names the tip
+   * it cloned from, one commit behind what is actually on the remote.
+   */
+  test("a lease behind this runner's own later commit is refreshed and retried", async () => {
+    const origin = bareOrigin();
+
+    const seed = await workspaceOn(origin);
+    writeFileSync(join(seed.workspace, "app.ts"), "export const answer = 43;\n");
+    await commitAll(seed.workspace, "seed work");
+    await pushed(seed.workspace, seed.repo);
+
+    // A resumed round: the clone continues the branch it already has commits
+    // on, and holds a lease at that tip.
+    const real = await workspaceOn(origin);
+
+    writeFileSync(join(real.workspace, "app.ts"), "export const answer = 44;\n");
+    await commitAll(real.workspace, "round work 1");
+    sh(["push", origin.url, `HEAD:refs/heads/${real.repo.branch}`], real.workspace);
+
+    writeFileSync(join(real.workspace, "app.ts"), "export const answer = 45;\n");
+    await commitAll(real.workspace, "round work 2");
+
+    const result = await pushed(real.workspace, real.repo);
+
+    expect(result.ok).toBe(true);
+    expect(await remoteHead(real.workspace, real.repo)).toBe(await head(real.workspace));
+  });
+
+  /**
+   * A remote ahead of the lease is not always this runner's own keepalive: it
+   * can be another actor's commit this runner never made and does not have.
+   * Forcing over it would be the exact loss the lease exists to prevent, so
+   * this stays refused rather than retried.
+   */
+  test("a remote ahead with a commit this runner does not have stays refused", async () => {
+    const origin = bareOrigin();
+
+    const seed = await workspaceOn(origin);
+    writeFileSync(join(seed.workspace, "app.ts"), "export const answer = 43;\n");
+    await commitAll(seed.workspace, "seed work");
+    await pushed(seed.workspace, seed.repo);
+
+    const real = await workspaceOn(origin);
+    const foreign = await workspaceOn(origin);
+    writeFileSync(join(foreign.workspace, "other.ts"), "export const other = 1;\n");
+    await commitAll(foreign.workspace, "foreign work");
+    sh(["push", origin.url, `HEAD:refs/heads/${foreign.repo.branch}`], foreign.workspace);
+
+    writeFileSync(join(real.workspace, "app.ts"), "export const answer = 44;\n");
+    await commitAll(real.workspace, "real work");
+
+    const result = await pushed(real.workspace, real.repo);
+
+    expect(result.ok).toBe(false);
+  });
+});
+
 describe("what a person reads when the guard fails a Job", () => {
   test("carries git's own reason, the way the pre-round push already does", () => {
     const message = pushFailureMessage(4, "crewbit/spec-314", "! [rejected] (stale info)\n");

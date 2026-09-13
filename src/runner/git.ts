@@ -47,18 +47,40 @@ export async function pushed(
 
   // The ref is named explicitly on both sides. A push that let git infer the
   // destination is a push that could land somewhere the server did not name.
-  const { code, stderr } = await git(
-    [
-      "push",
-      // The lease names the same full ref the destination does. A lease whose
-      // refname does not match the ref being pushed is silently ignored, and the
-      // push then degrades to the plain one this exists to replace.
-      ...(lease ? [`--force-with-lease=refs/heads/${repo.branch}:${lease}`] : []),
-      withToken(repo.url, repo.token),
-      `HEAD:refs/heads/${repo.branch}`,
-    ],
-    workspace,
-  );
+  const attempt = (against: string | undefined) =>
+    git(
+      [
+        "push",
+        // The lease names the same full ref the destination does. A lease whose
+        // refname does not match the ref being pushed is silently ignored, and
+        // the push then degrades to the plain one this exists to replace.
+        ...(against ? [`--force-with-lease=refs/heads/${repo.branch}:${against}`] : []),
+        withToken(repo.url, repo.token),
+        `HEAD:refs/heads/${repo.branch}`,
+      ],
+      workspace,
+    );
+
+  let { code, stderr } = await attempt(lease);
+
+  if (code !== 0 && lease) {
+    // cli#37: the keepalive pushes this same ref on its own timer, and its
+    // push can land between the lease being read above and this one reaching
+    // the remote - refused as stale, with the work already exactly where this
+    // asked for it. A remote ahead of the lease with a commit this runner's
+    // own history already contains (`HEAD` is built on top of it) is that
+    // keepalive, and is recoverable: the lease is refreshed from the remote
+    // and the same push retried once, rather than failing a round for a push
+    // that only lost a race with itself. A remote ahead with a commit this
+    // runner does not have is somebody else's, and stays refused rather than
+    // forced over.
+    const actual = await remoteHead(workspace, repo);
+    const ownWork = actual !== undefined && (await mergeBase(actual, "HEAD", workspace)) === actual;
+    if (ownWork && actual !== lease) {
+      await git(["update-ref", LEASE_REF, actual], workspace);
+      ({ code, stderr } = await attempt(actual));
+    }
+  }
 
   // The lease is what this Job knows the remote to hold, so a push that landed
   // moves it. Leaving it at the fetched tip is refused with `stale info` from
