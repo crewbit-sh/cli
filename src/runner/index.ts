@@ -37,6 +37,7 @@ import {
   mergeBase,
   onRemote,
   pushed,
+  pushFailureMessage,
   remoteHead,
 } from "./git.ts";
 import { decide } from "./outcome.ts";
@@ -436,7 +437,7 @@ export async function startRunner(options: RunnerOptions): Promise<RunnerHandle>
     // runner does not know which Run is which.
     const changed = { "changed-files.txt": (await changedFiles(workspace)) ?? "" };
 
-    const landed = (await pushed(workspace, repo)).ok;
+    const { ok: landed, stderr: pushStderr } = await pushed(workspace, repo);
     const commits = await commitsSince(workspace);
     inFlight.commits = commits;
 
@@ -461,12 +462,13 @@ export async function startRunner(options: RunnerOptions): Promise<RunnerHandle>
         pushed: landed,
         local_head: local,
         remote_head: remote,
+        stderr: pushStderr.trim(),
       });
       return {
         commits,
         problem: "failed",
         artifacts: {
-          "blocked.md": `${commits.length} commit(s) exist locally and the push to ${repo.branch} did not land. The work is on the runner and not on the remote, so this Job cannot be reported as complete.`,
+          "blocked.md": pushFailureMessage(commits.length, repo.branch, pushStderr),
           ...changed,
         },
       };

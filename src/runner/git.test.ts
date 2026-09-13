@@ -15,6 +15,7 @@ import {
   head,
   onRemote,
   pushed,
+  pushFailureMessage,
   redact,
   remoteHead,
   withToken,
@@ -280,6 +281,27 @@ describe("the push guard", () => {
 
   test("no local head is not delivery either, so two unknowns never agree", () => {
     expect(onRemote(undefined, undefined)).toBe(false);
+  });
+});
+
+describe("what a person reads when the guard fails a Job", () => {
+  test("carries git's own reason, the way the pre-round push already does", () => {
+    const message = pushFailureMessage(4, "crewbit/spec-314", "! [rejected] (stale info)\n");
+
+    expect(message).toContain("4 commit(s)");
+    expect(message).toContain("crewbit/spec-314");
+    expect(message).toContain("stale info");
+  });
+
+  test("says so even when the push itself reported success", () => {
+    // The keepalive can win a race the delivery push believes it lost, or
+    // `remoteHead` can be the one that failed to read - either way `pushed()`
+    // has no git error to carry, and empty is not a reason.
+    const message = pushFailureMessage(2, "crewbit/spec-9", "");
+
+    expect(message).toContain("2 commit(s)");
+    expect(message).not.toContain(": .");
+    expect(message.length).toBeGreaterThan(0);
   });
 });
 

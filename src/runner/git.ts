@@ -92,6 +92,19 @@ export function onRemote(local: string | undefined, remote: string | undefined):
 }
 
 /**
+ * What `blocked.md` and the runner's own log say when `onRemote` refuses a
+ * delivery. Git's own words when there are any, because "did not land" alone
+ * left #314 needing its workspace hunted down to learn why; empty is not a
+ * reason, so a push `onRemote` refused despite exiting zero (the keepalive won
+ * a race this push believed it lost, or `remoteHead` itself could not be read)
+ * still says something a person can act on.
+ */
+export function pushFailureMessage(commits: number, branch: string, stderr: string): string {
+  const reason = stderr.trim() || "the push reported success but the remote does not show it";
+  return `${commits} commit(s) exist locally and the push to ${branch} did not land: ${reason}. The work is on the runner and not on the remote, so this Job cannot be reported as complete.`;
+}
+
+/**
  * Whether a push that was refused nevertheless left the work on the remote.
  *
  * The keepalive pushes the same ref the first push does, so one of them loses
