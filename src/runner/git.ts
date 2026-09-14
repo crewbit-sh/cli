@@ -140,7 +140,7 @@ export function pushFailureMessage(commits: number, branch: string, stderr: stri
 export async function rebaseOntoFreshBase(
   workspace: string,
   repo: Repo,
-): Promise<{ rebased: boolean }> {
+): Promise<{ rebased: boolean; conflict?: string }> {
   const fetched = await git(
     ["fetch", "--depth", "1", withToken(repo.url, repo.token), repo.baseBranch],
     workspace,
@@ -163,8 +163,13 @@ export async function rebaseOntoFreshBase(
 
   const rebased = await git(["rebase", "--onto", freshBase, oldBase, "HEAD"], workspace);
   if (rebased.code !== 0) {
+    // crewbit-v2#328: the cheap in-band caller has a fallback (today's
+    // "behind main" refusal) and never reads this; the server's own rebase
+    // Job does not, and reports it the same way `pushed`'s own failure
+    // carries git's words rather than a bare `false`.
+    const conflict = rebased.stderr || "the rebase did not apply cleanly";
     await git(["rebase", "--abort"], workspace);
-    return { rebased: false };
+    return { rebased: false, conflict };
   }
 
   // `commitsSince`, `diffSince` and `changedFiles` all read from here: left at

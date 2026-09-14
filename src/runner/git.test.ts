@@ -831,6 +831,27 @@ describe("rebasing onto a base that moved during the round", () => {
     expect(existsSync(join(workspace, ".git", "rebase-apply"))).toBe(false);
   });
 
+  /**
+   * crewbit-v2#328: the cheap in-band caller ignores this and falls back to
+   * today's "behind main" refusal, but the server's own rebase Job has no
+   * other work to fall back to - it has to say why, the same way `pushed`'s
+   * own failure carries git's words rather than a bare `false`.
+   */
+  test("names what git said, so a rebase Job with nothing else to fall back to can report why", async () => {
+    const origin = bareOrigin();
+    const { workspace, repo } = await workspaceOn(origin);
+
+    writeFileSync(join(workspace, "app.ts"), "export const answer = 100;\n");
+    await commitAll(workspace, "change app.ts");
+    advanceBase(origin, { "app.ts": "export const answer = 200;\n" });
+
+    const result = await rebaseOntoFreshBase(workspace, repo);
+
+    expect(result.rebased).toBe(false);
+    expect(result.conflict).toBeTruthy();
+    expect(result.conflict).toContain("app.ts");
+  });
+
   test("does nothing when the base has not moved, so an unrelated round pays only the fetch", async () => {
     const origin = bareOrigin();
     const { workspace, repo } = await workspaceOn(origin);

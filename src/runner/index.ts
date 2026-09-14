@@ -47,6 +47,7 @@ import { decide } from "./outcome.ts";
 import { preExistingFailures } from "./pre-existing.ts";
 import { coalesceRateLimits, rateLimitIsSafe, rateLimitMessage } from "./rate-limit.ts";
 import { retryable, stopReason } from "./reason.ts";
+import { rebaseCompletion } from "./rebase.ts";
 import { runPrepare, runVerify } from "./verify.ts";
 import { waited } from "./wait.ts";
 import { keptWorkspaceCount, prepareWorkspace, sweepStaleWorkspaces } from "./workspace.ts";
@@ -509,6 +510,40 @@ export async function startRunner(options: RunnerOptions): Promise<RunnerHandle>
     return { commits, artifacts: changed };
   }
 
+  /**
+   * The whole of a rebase Job's work, #328: no prepare, no engine, no verify -
+   * `rebaseOntoFreshBase` is the mechanics, already proven as the cheap path
+   * `deliver` takes on its own; this is the fallback for the round that
+   * already found itself refused for it, dispatched with nothing else to do.
+   * `rebaseCompletion` is the decision, pure and unit-tested on its own,
+   * mirroring `outcome.ts`'s `decide` for the ordinary engine path - this is
+   * only the I/O that decision needs.
+   */
+  async function rebaseJob(
+    job: JobAssignParams,
+    workspace: string,
+    repo: JobAssignParams["repo"],
+    inFlight: InFlight,
+  ): Promise<JobCompleteParams> {
+    if (!repo) return rebaseCompletion(job.jobId, { kind: "no_repo" });
+
+    const { rebased, conflict } = await rebaseOntoFreshBase(workspace, repo);
+    if (!rebased && conflict !== undefined) {
+      log.info("the rebase conflicted, leaving it for the server's own fix loop", {
+        job_id: job.jobId,
+        branch: repo.branch,
+      });
+      return rebaseCompletion(job.jobId, {
+        kind: "conflict",
+        conflict,
+        changedFiles: (await changedFiles(workspace)) ?? "",
+      });
+    }
+
+    const delivered = await deliver(workspace, repo, inFlight, job);
+    return rebaseCompletion(job.jobId, { kind: "delivered", ...delivered });
+  }
+
   /** Runs the project's own check and reports it the way the server reads it. */
   /**
    * Gets the checkout into a state anything can run in, and reports rather than
@@ -621,10 +656,19 @@ export async function startRunner(options: RunnerOptions): Promise<RunnerHandle>
     // identical transcript lines for it. One coalescer for the whole Job, not
     // per attempt, so a retry right after a run of them still closes it
     // rather than starting a second, silently shorter one.
+    // Every Job that reaches here is not a rebase one - #328's own has no
+    // engine to prompt, and `execute` never calls this for one. `prompt` is
+    // optional on the wire only to allow that Job; every other kind of Job
+    // still requires it.
+    const prompt = job.harness.prompt;
+    if (prompt === undefined) {
+      throw new Error(`job ${job.jobId} has no prompt, and its harness names no rebase either`);
+    }
+
     const rateLimits = coalesceRateLimits((event) => batcher.push(event));
     for (let attempt = 1; ; attempt += 1) {
       const result = await engine.run({
-        prompt: job.harness.prompt,
+        prompt,
         cwd: workspace,
         maxTurns: job.harness.maxTurns,
         allowedTools: job.harness.allowedTools,
@@ -784,132 +828,146 @@ export async function startRunner(options: RunnerOptions): Promise<RunnerHandle>
           );
         }
       }
-      // Before everything else in the workspace. The code stage was installing
-      // dependencies out of its own turn budget, and the eval stage was running
-      // its check against a tree with none and calling the result a failed
-      // check.
-      const prepared = job.harness.prepare ? await prepare(job, workspace, status) : undefined;
-
-      // Before the engine, and never by it. An agent asked to run the tests and
-      // report is an agent that can report a green it did not get, which is the
-      // fraud the eval stage exists to catch.
-      //
-      // Only for a Stage that does not deliver. A Stage that writes is the thing
-      // that would make a red check green, so running it first and skipping the
-      // agent would be refusing to do the Job; its check runs after the push
-      // instead, where there is something to check.
-      const verified =
-        !delivers(job.stage) && (prepared?.exitCode === 0 || !prepared) && job.harness.verify
-          ? await verify(job, workspace, status)
-          : undefined;
-
-      // #9: a verify failure the base commit already has is not this change's
-      // own, so it is worth asking before giving up on the engine. A verify
-      // that passed never runs a second time on the base.
-      const preExisting =
-        verified && verified.exitCode !== 0
-          ? await preExistingOnBase(job, workspace, verified.report, status)
-          : undefined;
-
-      // A red verify makes the agent's turns pointless, and they are the
-      // expensive part. Not a `return`: the completion is sent after this block,
-      // and leaving early here left the Job unfinished and the caller waiting.
-      // The server reads the exit code and decides what it means; the runner
-      // does not know what a verdict is.
-      if (prepared && prepared.exitCode !== 0) {
-        // Nobody's code is wrong. The workspace could not be made ready, so the
-        // Job stops without spending the engine, and it says which command
-        // failed rather than leaving the server to read this as a check that
-        // ran and said no.
-        completion = {
-          jobId: job.jobId,
-          outcome: "failed",
-          artifacts: { "prepare.txt": prepared.report },
-        };
-      } else if (verified && verified.exitCode !== 0 && !preExisting) {
-        completion = {
-          jobId: job.jobId,
-          outcome: "complete",
-          artifacts: { "verify.txt": verified.report },
-        };
-      } else {
-        status("working", "workspace ready, engine starting");
-        const result = await runEngine(job, workspace, controller, batcher);
-        const collected = await collect(workspace, job.artifacts?.collect ?? []);
+      if (job.harness.rebase) {
+        // #328: no prepare, no engine, no verify - `job.harness.rebase` is
+        // the whole of the Job, and the branch above already has whatever
+        // `prepare`/`verify` a code Job could otherwise carry, both
+        // meaningless to a Job that starts no engine to run them for.
+        status("working", "rebasing onto the fresh base");
         // A Stage that explores has nothing to sweep up and nothing to push, so
-        // it never reaches for the remote at all.
+        // it never reaches for the remote at all - but this one delivers, the
+        // same reason the ordinary engine path below holds `carrying` first.
         delivering = true;
         await carrying;
-        const delivered =
-          job.repo && delivers(job.stage)
-            ? await deliver(workspace, job.repo, inFlight, job)
-            : undefined;
-        // The other side of the engine, for the Stage that writes. After the
-        // push rather than before it, so a red suite still leaves the commits on
-        // the remote for the next round to start from.
-        const checked =
-          job.repo && delivers(job.stage) && job.harness.verify
+        completion = await rebaseJob(job, workspace, job.repo, inFlight);
+      } else {
+        // Before everything else in the workspace. The code stage was installing
+        // dependencies out of its own turn budget, and the eval stage was running
+        // its check against a tree with none and calling the result a failed
+        // check.
+        const prepared = job.harness.prepare ? await prepare(job, workspace, status) : undefined;
+
+        // Before the engine, and never by it. An agent asked to run the tests and
+        // report is an agent that can report a green it did not get, which is the
+        // fraud the eval stage exists to catch.
+        //
+        // Only for a Stage that does not deliver. A Stage that writes is the thing
+        // that would make a red check green, so running it first and skipping the
+        // agent would be refusing to do the Job; its check runs after the push
+        // instead, where there is something to check.
+        const verified =
+          !delivers(job.stage) && (prepared?.exitCode === 0 || !prepared) && job.harness.verify
             ? await verify(job, workspace, status)
             : undefined;
-        // One slot on the wire, and only one of the two ever ran.
-        const check = verified ?? checked;
-        // Why the engine stopped, when it stopped for a reason worth naming.
-        // The server has no column for `engineResult`, so it travels as an
-        // artifact: a map the server already keeps verbatim.
-        const reason = stopReason(result, job.harness.maxTurns, job.harness.maxBudgetUsd);
-        // The whole table is in `outcome.ts`, and every branch of it has a test
-        // that needs none of this running.
-        const { outcome: decided, flipped } = decide({
-          problem: delivered?.problem,
-          result,
-          artifacts: job.artifacts,
-          collected,
-          checked,
-        });
-        if (flipped) {
-          log.error("the check failed, so the job is failed", {
-            job_id: job.jobId,
-            stage: job.stage,
-            command: job.harness.verify?.command,
-            exit_code: checked?.exitCode,
+
+        // #9: a verify failure the base commit already has is not this change's
+        // own, so it is worth asking before giving up on the engine. A verify
+        // that passed never runs a second time on the base.
+        const preExisting =
+          verified && verified.exitCode !== 0
+            ? await preExistingOnBase(job, workspace, verified.report, status)
+            : undefined;
+
+        // A red verify makes the agent's turns pointless, and they are the
+        // expensive part. Not a `return`: the completion is sent after this block,
+        // and leaving early here left the Job unfinished and the caller waiting.
+        // The server reads the exit code and decides what it means; the runner
+        // does not know what a verdict is.
+        if (prepared && prepared.exitCode !== 0) {
+          // Nobody's code is wrong. The workspace could not be made ready, so the
+          // Job stops without spending the engine, and it says which command
+          // failed rather than leaving the server to read this as a check that
+          // ran and said no.
+          completion = {
+            jobId: job.jobId,
+            outcome: "failed",
+            artifacts: { "prepare.txt": prepared.report },
+          };
+        } else if (verified && verified.exitCode !== 0 && !preExisting) {
+          completion = {
+            jobId: job.jobId,
+            outcome: "complete",
+            artifacts: { "verify.txt": verified.report },
+          };
+        } else {
+          status("working", "workspace ready, engine starting");
+          const result = await runEngine(job, workspace, controller, batcher);
+          const collected = await collect(workspace, job.artifacts?.collect ?? []);
+          // A Stage that explores has nothing to sweep up and nothing to push, so
+          // it never reaches for the remote at all.
+          delivering = true;
+          await carrying;
+          const delivered =
+            job.repo && delivers(job.stage)
+              ? await deliver(workspace, job.repo, inFlight, job)
+              : undefined;
+          // The other side of the engine, for the Stage that writes. After the
+          // push rather than before it, so a red suite still leaves the commits on
+          // the remote for the next round to start from.
+          const checked =
+            job.repo && delivers(job.stage) && job.harness.verify
+              ? await verify(job, workspace, status)
+              : undefined;
+          // One slot on the wire, and only one of the two ever ran.
+          const check = verified ?? checked;
+          // Why the engine stopped, when it stopped for a reason worth naming.
+          // The server has no column for `engineResult`, so it travels as an
+          // artifact: a map the server already keeps verbatim.
+          const reason = stopReason(result, job.harness.maxTurns, job.harness.maxBudgetUsd);
+          // The whole table is in `outcome.ts`, and every branch of it has a test
+          // that needs none of this running.
+          const { outcome: decided, flipped } = decide({
+            problem: delivered?.problem,
+            result,
+            artifacts: job.artifacts,
+            collected,
+            checked,
           });
+          if (flipped) {
+            log.error("the check failed, so the job is failed", {
+              job_id: job.jobId,
+              stage: job.stage,
+              command: job.harness.verify?.command,
+              exit_code: checked?.exitCode,
+            });
+          }
+          completion = {
+            jobId: job.jobId,
+            // The engine's own answer travels alongside whatever it wrote: when a
+            // Stage produces nothing, this is what says why.
+            artifacts: {
+              ...collected,
+              // An engine that ran out of turns returns no final answer, and the
+              // server's fallback chain does not fall through past `""`, so the
+              // note it writes was the empty string. The reason stands in for it.
+              "result.md": result.text || reason || "",
+              ...(reason ? { "engine.txt": reason } : {}),
+              ...(check ? { "verify.txt": check.report } : {}),
+              // Beside verify.txt, #9: the branch's own failures the base
+              // commit already had, so the eval prompt can read a red check
+              // without mistaking it for this change's own.
+              ...(preExisting ? { "pre-existing.txt": preExisting.join("\n") } : {}),
+              // `blocked.md` is the file the server reads for the note it puts on
+              // the Run, so this is what puts the failure in front of a person
+              // rather than leaving it in an artifact nobody opens.
+              ...(flipped && checked
+                ? {
+                    "blocked.md": `\`${job.harness.verify?.command}\` did not pass, so this change is not finished. The commits are on ${job.repo?.branch} and the check said:\n\n${checked.report}`,
+                  }
+                : {}),
+              ...delivered?.artifacts,
+            },
+            commits: delivered?.commits,
+            outcome: flipped ? "failed" : decided,
+            session: {
+              id: result.sessionId,
+              turns: result.turns,
+              costUsd: result.costUsd,
+              durationMs: 0,
+            },
+            engineResult: { subtype: result.subtype, terminalReason: result.terminalReason },
+          };
         }
-        completion = {
-          jobId: job.jobId,
-          // The engine's own answer travels alongside whatever it wrote: when a
-          // Stage produces nothing, this is what says why.
-          artifacts: {
-            ...collected,
-            // An engine that ran out of turns returns no final answer, and the
-            // server's fallback chain does not fall through past `""`, so the
-            // note it writes was the empty string. The reason stands in for it.
-            "result.md": result.text || reason || "",
-            ...(reason ? { "engine.txt": reason } : {}),
-            ...(check ? { "verify.txt": check.report } : {}),
-            // Beside verify.txt, #9: the branch's own failures the base
-            // commit already had, so the eval prompt can read a red check
-            // without mistaking it for this change's own.
-            ...(preExisting ? { "pre-existing.txt": preExisting.join("\n") } : {}),
-            // `blocked.md` is the file the server reads for the note it puts on
-            // the Run, so this is what puts the failure in front of a person
-            // rather than leaving it in an artifact nobody opens.
-            ...(flipped && checked
-              ? {
-                  "blocked.md": `\`${job.harness.verify?.command}\` did not pass, so this change is not finished. The commits are on ${job.repo?.branch} and the check said:\n\n${checked.report}`,
-                }
-              : {}),
-            ...delivered?.artifacts,
-          },
-          commits: delivered?.commits,
-          outcome: flipped ? "failed" : decided,
-          session: {
-            id: result.sessionId,
-            turns: result.turns,
-            costUsd: result.costUsd,
-            durationMs: 0,
-          },
-          engineResult: { subtype: result.subtype, terminalReason: result.terminalReason },
-        };
       }
     } catch (cause) {
       const message = cause instanceof Error ? cause.message : String(cause);
