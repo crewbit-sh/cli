@@ -6,6 +6,12 @@ Upgrading is replacing the binary and starting it again. Stop the old one once
 and it finishes what it is holding before it exits, so an upgrade costs you
 nothing that was in flight. Stop it a second time and it exits straight away.
 
+## 0.12.0
+
+### Added
+
+- the runner performs a rebase Job with no engine at all
+
 ## 0.11.4
 
 ### Fixed
