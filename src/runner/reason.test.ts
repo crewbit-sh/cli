@@ -9,57 +9,43 @@ const clean = {
   turns: 3,
 };
 
-describe("an engine that hit the turn ceiling", () => {
-  test("is named as the ceiling, with both numbers", () => {
-    const reason = stopReason(
+describe("an engine the stream says stopped on turns", () => {
+  // There is no turn ceiling left to name. The runner never sends a `maxTurns`,
+  // so an engine that reports one is reporting something this runner has no
+  // number for - and #40's Copilot engine counts turns its own way entirely.
+  test("is not named as a ceiling, whichever way the engine said it", () => {
+    for (const result of [
       { ok: false, subtype: "error_max_turns", terminalReason: "max_turns", turns: 81 },
-      80,
-    );
-
-    expect(reason).toContain("turn ceiling");
-    expect(reason).toContain("81");
-    expect(reason).toContain("80");
+      { ok: false, subtype: "success", terminalReason: "max_turns", turns: 81 },
+    ]) {
+      expect(stopReason(result)).not.toContain("ceiling");
+    }
   });
 
-  test("is recognised from the turn count when the engine named nothing", () => {
-    // The CLI's `terminal_reason` for this case is not measured anywhere in this
-    // repo, so the subtype alone cannot be what the diagnosis depends on.
-    const reason = stopReason({ ok: false, subtype: "error", terminalReason: "", turns: 81 }, 80);
+  test("carries what the engine did name, like any other failure", () => {
+    const reason = stopReason({
+      ok: false,
+      subtype: "error_max_turns",
+      terminalReason: "max_turns",
+      turns: 81,
+    });
 
-    expect(reason).toContain("turn ceiling");
+    expect(reason).toContain("max_turns");
     expect(reason).toContain("81");
-    expect(reason).toContain("80");
   });
 });
 
 describe("an engine that ended cleanly", () => {
   test("says nothing at all", () => {
-    expect(stopReason(clean, 80)).toBeUndefined();
-  });
-
-  test("says nothing even when it used its last turn", () => {
-    // A run that finished on turn 80 of 80 finished. Accusing it of stopping at
-    // the ceiling is noise on the ordinary case, which is most cases.
-    expect(stopReason({ ...clean, turns: 80 }, 80)).toBeUndefined();
+    expect(stopReason(clean)).toBeUndefined();
   });
 
   test("says nothing when it named no reason either", () => {
-    expect(stopReason({ ok: true, subtype: "", terminalReason: "", turns: 2 }, 80)).toBeUndefined();
+    expect(stopReason({ ok: true, subtype: "", terminalReason: "", turns: 2 })).toBeUndefined();
   });
 
   test("says nothing when it ended under budget, whatever the budget was", () => {
-    expect(stopReason({ ...clean, costUsd: 0.4 }, undefined, 10)).toBeUndefined();
-  });
-});
-
-describe("a Job with no turn ceiling", () => {
-  test("is never accused of stopping at one it was never given", () => {
-    const reason = stopReason(
-      { ok: false, subtype: "error", terminalReason: "", turns: 81 },
-      undefined,
-    );
-
-    expect(reason).not.toContain("turn ceiling");
+    expect(stopReason({ ...clean, costUsd: 0.4 }, 10)).toBeUndefined();
   });
 });
 
@@ -75,7 +61,6 @@ describe("an engine that hit the budget ceiling", () => {
         turns: 1,
         costUsd: 0.06,
       },
-      undefined,
       0.0001,
     );
 
@@ -87,28 +72,28 @@ describe("an engine that hit the budget ceiling", () => {
   test("is recognised from the spend when the engine named nothing", () => {
     const reason = stopReason(
       { ok: false, subtype: "error", terminalReason: "", turns: 1, costUsd: 5 },
-      undefined,
       5,
     );
 
     expect(reason).toContain("budget ceiling");
   });
 
-  test("does not also claim the turn ceiling when a turn ceiling was given but not reached", () => {
+  test("is still the budget when the engine also ran a great many turns", () => {
+    // The turn count is read by nothing now, so a long run that exhausted its
+    // budget is a budget stop and says so.
     const reason = stopReason(
       {
         ok: false,
         subtype: "error_max_budget_usd",
         terminalReason: "budget_exhausted",
-        turns: 1,
+        turns: 90,
         costUsd: 5,
       },
-      80,
       5,
     );
 
     expect(reason).toContain("budget ceiling");
-    expect(reason).not.toContain("turn ceiling");
+    expect(reason).not.toContain("90");
   });
 });
 
@@ -117,17 +102,19 @@ describe("an engine that failed for some other reason", () => {
     // The shape recorded in `fixtures/stream-api-error.jsonl`: `subtype:
     // "success"` alongside `is_error: true`, which is why the subtype is not
     // trusted on its own.
-    const reason = stopReason(
-      { ok: false, subtype: "success", terminalReason: "api_error", turns: 1 },
-      80,
-    );
+    const reason = stopReason({
+      ok: false,
+      subtype: "success",
+      terminalReason: "api_error",
+      turns: 1,
+    });
 
     expect(reason).toContain("api_error");
-    expect(reason).not.toContain("turn ceiling");
+    expect(reason).not.toContain("ceiling");
   });
 
   test("still reports something when the engine named nothing", () => {
-    const reason = stopReason({ ok: false, subtype: "", terminalReason: "", turns: 2 }, 80);
+    const reason = stopReason({ ok: false, subtype: "", terminalReason: "", turns: 2 });
 
     expect(reason).toMatch(/no reason/i);
     expect(reason).toContain("2");

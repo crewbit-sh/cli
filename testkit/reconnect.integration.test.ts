@@ -41,7 +41,7 @@ const job = (jobId: string) => ({
   runId: "run-1",
   stage: "plan" as const,
   context: {},
-  harness: { prompt: "go", maxTurns: 1 },
+  harness: { prompt: "go" },
 });
 
 describe("a dropped connection", () => {

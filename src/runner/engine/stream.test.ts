@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
+import { decide } from "../outcome.ts";
 import { consumeStream, failedResult, parseLine } from "./stream.ts";
 import type { EngineEvent, EngineResult } from "./types.ts";
 
@@ -340,9 +341,14 @@ describe("consumeStream, on a truncated stream", () => {
  * The ceiling is what makes a Job `partial` rather than `failed`, so it has to
  * be told apart from every other reason a run ends without an answer. The lines
  * here are shaped like the recorded fixtures, minus the fields nothing reads.
+ *
+ * Only the budget is a ceiling now. The turn ceiling was never one: crewbit-v2
+ * measured 5 of 12 code Jobs past theirs, and nothing has sent a `maxTurns`
+ * since the per-project budget replaced it.
  */
-describe("a run that stopped at a ceiling", () => {
-  const resultLine = (fields: Record<string, unknown>) =>
+/** A result line shaped like the recorded fixtures, with only what a ceiling reads on it. */
+const resultOf = (fields: Record<string, unknown>): EngineResult | undefined => {
+  const parsed = parseLine(
     JSON.stringify({
       type: "result",
       num_turns: 80,
@@ -350,33 +356,16 @@ describe("a run that stopped at a ceiling", () => {
       total_cost_usd: 1,
       result: "",
       ...fields,
-    });
+    }),
+  );
+  return parsed.kind === "result" ? parsed.result : undefined;
+};
 
-  const parsed = (line: string): EngineResult | undefined => {
-    const p = parseLine(line);
-    return p.kind === "result" ? p.result : undefined;
-  };
-
-  test("the documented turn ceiling is a ceiling, and not ok", () => {
-    const result = parsed(resultLine({ is_error: true, subtype: "error_max_turns" }));
+describe("a run that stopped at a ceiling", () => {
+  test("the budget ceiling is a ceiling, and not ok", () => {
+    const result = resultOf({ is_error: true, subtype: "error_max_budget_usd" });
 
     expect(result?.ok).toBe(false);
-    expect(result?.ceiling).toBe(true);
-  });
-
-  test("the budget ceiling is a ceiling too", () => {
-    const result = parsed(resultLine({ is_error: true, subtype: "error_max_budget_usd" }));
-
-    expect(result?.ceiling).toBe(true);
-  });
-
-  test("a CLI that reports the limit only in terminal_reason is still read as one", () => {
-    // The defensive arm. `stream-api-error.jsonl` is the measured precedent: the
-    // CLI sent `subtype: "success"` with the real reason in `terminal_reason`.
-    const result = parsed(
-      resultLine({ is_error: true, subtype: "success", terminal_reason: "max_turns" }),
-    );
-
     expect(result?.ceiling).toBe(true);
   });
 
@@ -384,9 +373,11 @@ describe("a run that stopped at a ceiling", () => {
     // #29: measured 2026-09-12, `claude --max-budget-usd 0.0001 --output-format
     // stream-json` - the real value, not the "max_budget_usd" this arm
     // guessed at before anyone had run it.
-    const result = parsed(
-      resultLine({ is_error: true, subtype: "success", terminal_reason: "budget_exhausted" }),
-    );
+    const result = resultOf({
+      is_error: true,
+      subtype: "success",
+      terminal_reason: "budget_exhausted",
+    });
 
     expect(result?.ceiling).toBe(true);
   });
@@ -412,5 +403,44 @@ describe("a run that stopped for any other reason", () => {
 
   test("an engine that was killed is not a ceiling", () => {
     expect(failedResult("cancelled", "cancelled").ceiling).not.toBe(true);
+  });
+});
+
+/**
+ * The turn ceiling, which this runner no longer has. `decide` is here rather
+ * than in `outcome.test.ts` because the consequence is the whole point: a
+ * ceiling is `partial` and everything else that failed is `failed`, so dropping
+ * the turn pair from the parser is what moves such a Job from one to the other.
+ * Both halves are pure, so this stays a unit test.
+ */
+describe("a run the engine says stopped on turns", () => {
+  const stopped = (fields: Record<string, unknown>) => resultOf({ is_error: true, ...fields });
+
+  test("the documented subtype is not a ceiling", () => {
+    const result = stopped({ subtype: "error_max_turns" });
+
+    expect(result?.ok).toBe(false);
+    expect(result?.ceiling).not.toBe(true);
+  });
+
+  test("the reason the CLI sends instead is not a ceiling either", () => {
+    const result = stopped({ subtype: "success", terminal_reason: "max_turns" });
+
+    expect(result?.ceiling).not.toBe(true);
+  });
+
+  test("so the Job reports failed, where it used to report partial", () => {
+    // The one observable change in this whole removal. An engine that counts
+    // turns its own way - #40's Copilot engine is exactly that - is no longer
+    // handed a `partial` for a ceiling it has no concept of.
+    for (const fields of [
+      { subtype: "error_max_turns" },
+      { subtype: "success", terminal_reason: "max_turns" },
+    ]) {
+      const result = stopped(fields);
+      if (!result) throw new Error("the line above is a result line");
+
+      expect(decide({ result, collected: {} }).outcome).toBe("failed");
+    }
   });
 });

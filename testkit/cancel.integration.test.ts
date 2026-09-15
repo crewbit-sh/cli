@@ -28,7 +28,7 @@ const job = (jobId: string) => ({
   runId: "run-1",
   stage: "plan" as const,
   context: {},
-  harness: { prompt: "go", maxTurns: 1 },
+  harness: { prompt: "go" },
 });
 
 /** A runner holding one Job, with the engine still in the middle of it. */

@@ -3,11 +3,14 @@
  *
  * A Job that ended for a reason the engine named used to lose it: the runner
  * reported `engineResult` and nothing on the server read it, so a code stage
- * that ran 81 turns against a ceiling of 80 arrived as a `failed` Job with an
- * empty `result.md` and no explanation anywhere.
+ * that stopped short arrived as a `failed` Job with an empty `result.md` and no
+ * explanation anywhere.
  *
  * Pure, and deliberately here rather than inside the engine: what a reason
- * means depends on the Job's ceiling, which is the runner's to know.
+ * means depends on the Job's budget, which is the runner's to know. There is no
+ * turn ceiling to know about - crewbit-v2#303 replaced it with a per-project
+ * budget, and an engine reporting one is reporting a limit this runner never
+ * set and has no number for.
  */
 
 /** What of an `EngineResult` this needs. Narrower than the type, so it is testable. */
@@ -16,19 +19,15 @@ export type StopFacts = {
   subtype: string;
   terminalReason: string;
   turns: number;
-  /** Only read for the budget ceiling; the turn ceiling never needs it. */
+  /** Only read for the budget ceiling; every other arm just reports what it was told. */
   costUsd?: number;
 };
 
-/** The documented subtype the engine reports when it hits the turn ceiling. */
-const MAX_TURNS = "error_max_turns";
-
 /**
- * Measured on this machine, 2026-09-12, against a real `--max-budget-usd`
- * run (see docs/measured.md's max-turns entry for the same method): `subtype`
- * is `error_max_budget_usd`, same shape as the turn ceiling's own subtype.
- * `terminal_reason` came back `budget_exhausted`, not `max_budget_usd` -
- * #29 is where `stream.ts`'s own defensive arm was fixed to match.
+ * Measured on this machine, 2026-09-12, against a real `--max-budget-usd` run:
+ * `subtype` is `error_max_budget_usd`. `terminal_reason` came back
+ * `budget_exhausted`, not `max_budget_usd` - #29 is where `stream.ts`'s own
+ * defensive arm was fixed to match.
  */
 const MAX_BUDGET = "error_max_budget_usd";
 
@@ -36,25 +35,14 @@ const MAX_BUDGET = "error_max_budget_usd";
  * The sentence, or nothing when the engine ended cleanly: the ordinary case
  * says nothing extra, because a note on every Job is a note nobody reads.
  *
- * The ceiling is recognised two ways, because one is not enough. The subtype is
- * the documented signal, and `fixtures/stream-api-error.jsonl` shows it carrying
- * `success` on a run that failed, so the turn count is the defensive path. It
- * only applies to a run that did not end cleanly, so a success that used its
- * last turn is not accused of stopping at the ceiling.
+ * The budget ceiling is recognised two ways, because one is not enough. The
+ * subtype is the documented signal, and `fixtures/stream-api-error.jsonl` shows
+ * it carrying `success` on a run that failed, so the spend is the defensive
+ * path. It only applies to a run that did not end cleanly, so a success that
+ * spent its last cent is not accused of stopping at the ceiling.
  */
-export function stopReason(
-  result: StopFacts,
-  maxTurns: number | undefined,
-  maxBudgetUsd?: number,
-): string | undefined {
+export function stopReason(result: StopFacts, maxBudgetUsd?: number): string | undefined {
   if (result.ok) return undefined;
-
-  if (
-    result.subtype === MAX_TURNS ||
-    (maxTurns !== undefined && maxTurns > 0 && result.turns >= maxTurns)
-  ) {
-    return `the engine stopped at the turn ceiling: ${result.turns} turns against a maximum of ${maxTurns}`;
-  }
 
   const costUsd = result.costUsd ?? 0;
   if (

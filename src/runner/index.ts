@@ -275,7 +275,6 @@ export async function startRunner(options: RunnerOptions): Promise<RunnerHandle>
           log.info("job accepted", {
             job_id: job.jobId,
             stage: job.stage,
-            max_turns: job.harness.maxTurns,
             model: job.harness.model,
             // A Stage told to explore a codebase and handed no checkout runs
             // against an empty directory, which is invisible without this.
@@ -670,7 +669,6 @@ export async function startRunner(options: RunnerOptions): Promise<RunnerHandle>
       const result = await engine.run({
         prompt,
         cwd: workspace,
-        maxTurns: job.harness.maxTurns,
         allowedTools: job.harness.allowedTools,
         permissionMode: job.harness.permissionMode,
         model: job.harness.model,
@@ -913,7 +911,7 @@ export async function startRunner(options: RunnerOptions): Promise<RunnerHandle>
           // Why the engine stopped, when it stopped for a reason worth naming.
           // The server has no column for `engineResult`, so it travels as an
           // artifact: a map the server already keeps verbatim.
-          const reason = stopReason(result, job.harness.maxTurns, job.harness.maxBudgetUsd);
+          const reason = stopReason(result, job.harness.maxBudgetUsd);
           // The whole table is in `outcome.ts`, and every branch of it has a test
           // that needs none of this running.
           const { outcome: decided, flipped } = decide({
