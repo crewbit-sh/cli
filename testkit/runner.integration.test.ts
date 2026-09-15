@@ -4,7 +4,7 @@
  * the double.
  */
 import { describe, expect, test } from "bun:test";
-import { startRunner } from "../src/index.ts";
+import { fakeEngine, startRunner } from "../src/index.ts";
 import { blockingEngine } from "./support/blocking-engine.ts";
 import { integrationHarness } from "./support/harness.ts";
 
@@ -23,7 +23,7 @@ describe("a Job whose engine runs long", () => {
       runId: "run-1",
       stage: "plan",
       context: {},
-      harness: { prompt: "do the thing", maxTurns: 1 },
+      harness: { prompt: "do the thing" },
       // Small on purpose: the keepalive fires at a third of the lease
       // (packages/cli's `keepaliveMs`), so this is what makes waiting for one
       // a matter of milliseconds instead of the production hour.
@@ -70,7 +70,7 @@ describe("cli#38: a fresh grant answered back on job.status", () => {
       runId: "run-2",
       stage: "plan",
       context: {},
-      harness: { prompt: "do the thing", maxTurns: 1 },
+      harness: { prompt: "do the thing" },
       leaseSeconds: 1,
     });
     expect(accepted).toEqual({ accepted: true });
@@ -80,5 +80,45 @@ describe("cli#38: a fresh grant answered back on job.status", () => {
     expect(double.sawStatusAsRequest("job-2")).toBe(true);
     release();
     expect((await double.completionFor("job-2")).outcome).toBe("complete");
+  });
+});
+
+/**
+ * The protocol's v1 rule, and the reason a field can be retired from one side at
+ * a time: adding an optional field is a compatible change, so a runner meeting
+ * one it has no idea about ignores it rather than refusing the Job.
+ *
+ * `harness.maxTurns` is exactly this now. It is not named here on purpose - the
+ * whole point of retiring it is that this runner no longer tells it apart from
+ * any other field it does not recognise, and naming it would put the field back
+ * into a tree that has to keep typechecking once the protocol drops it.
+ *
+ * Over the socket rather than beside a module because there is no branch to
+ * reach: the property is the *absence* of validation between the frame and
+ * `execute`, and nothing below the wire can observe it.
+ */
+describe("a Job from a server this runner is older or newer than", () => {
+  test("a harness field it does not recognise is ignored, not refused", async () => {
+    const double = await server();
+    const runner = await startRunner({ url: double.url, log: quiet, engine: fakeEngine() });
+    stopAll.push(() => runner.stop());
+
+    await double.helloReceived();
+    // Not a literal in the `harness` position, so the excess-property check does
+    // not see it - which is the same way it arrives off a real socket.
+    const harness = { prompt: "reply with exactly: OK", somethingThisRunnerNeverHeardOf: 80 };
+    const accepted = await double.assign({
+      jobId: "job-3",
+      runId: "run-3",
+      stage: "plan",
+      context: {},
+      harness,
+    });
+
+    expect(accepted).toEqual({ accepted: true });
+    const completion = await double.completionFor("job-3");
+    expect(completion.outcome).toBe("complete");
+    // Nothing about the field reached the report either way.
+    expect(JSON.stringify(completion)).not.toContain("somethingThisRunnerNeverHeardOf");
   });
 });

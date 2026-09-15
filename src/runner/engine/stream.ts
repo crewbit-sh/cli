@@ -211,8 +211,16 @@ function toResult(message: Record<string, unknown>): EngineResult {
   };
 }
 
-/** The documented signal, one subtype per limit. */
-const CEILING_SUBTYPES = new Set(["error_max_turns", "error_max_budget_usd"]);
+/**
+ * The documented signal. The budget is the only ceiling this runner has:
+ * crewbit-v2#303 replaced the turn ceiling with a per-project budget, nothing
+ * has sent a `maxTurns` since, and reading `error_max_turns` as a ceiling would
+ * hand a `partial` to any engine that counts turns its own way.
+ *
+ * A set of one rather than an equality, because the next limit the CLI grows is
+ * a word here and nothing else.
+ */
+const CEILING_SUBTYPES = new Set(["error_max_budget_usd"]);
 
 /**
  * The defensive arm, per the engine invariant. `fixtures/stream-api-error.jsonl`
@@ -220,12 +228,11 @@ const CEILING_SUBTYPES = new Set(["error_max_turns", "error_max_budget_usd"]);
  * documented table: it carried `subtype: "success"` with `is_error: true` and
  * the real reason in `terminal_reason`.
  *
- * Both measured 2026-09-12, `claude --output-format stream-json --verbose`:
- * `--max-turns 1` against a prompt needing more reports `terminal_reason:
- * "max_turns"`; `--max-budget-usd 0.0001` reports `"budget_exhausted"`, not
- * `"max_budget_usd"` - this arm carried that guess, unmeasured, until now.
+ * Measured 2026-09-12, `claude --output-format stream-json --verbose`:
+ * `--max-budget-usd 0.0001` reports `terminal_reason: "budget_exhausted"`, not
+ * `"max_budget_usd"` - this arm carried that guess, unmeasured, until #29.
  */
-const CEILING_REASONS = new Set(["max_turns", "budget_exhausted"]);
+const CEILING_REASONS = new Set(["budget_exhausted"]);
 
 function hitCeiling(subtype: string, terminalReason: string): boolean {
   return CEILING_SUBTYPES.has(subtype) || CEILING_REASONS.has(terminalReason);

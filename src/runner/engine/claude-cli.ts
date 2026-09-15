@@ -40,12 +40,13 @@ export function buildArgs(run: EngineRun): string[] {
     // them - connectors are fetched from the subscription login, not a file.
     "--strict-mcp-config",
   ];
-  // No ceiling at all when the harness gave none, rather than one computed
-  // from `undefined`: crewbit-v2#303 sends a per-project budget instead.
-  if (run.maxTurns !== undefined) args.push("--max-turns", String(run.maxTurns));
   if (run.model) args.push("--model", run.model);
   if (run.allowedTools?.length) args.push("--allowed-tools", run.allowedTools.join(","));
   if (run.permissionMode) args.push("--permission-mode", run.permissionMode);
+  // The run's only ceiling. There is no `--max-turns` here and there is not
+  // meant to be one: crewbit-v2#303 replaced the turn ceiling with this budget,
+  // and crewbit-v2's own measurements found 5 of 12 code Jobs past the ceiling
+  // they were given, so it was never a hard stop to begin with.
   if (run.maxBudgetUsd) args.push("--max-budget-usd", String(run.maxBudgetUsd));
   return args;
 }

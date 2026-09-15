@@ -6,6 +6,12 @@ Upgrading is replacing the binary and starting it again. Stop the old one once
 and it finishes what it is holding before it exits, so an upgrade costs you
 nothing that was in flight. Stop it a second time and it exits straight away.
 
+## Unreleased
+
+### Fixed
+
+- the turn ceiling is gone from the runner, and no Job is reported as stopping at one
+
 ## 0.12.0
 
 ### Added

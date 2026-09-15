@@ -50,7 +50,7 @@ const job = (jobId: string) => ({
   runId: "run-1",
   stage: "plan" as const,
   context: {},
-  harness: { prompt: "reply with exactly: OK", maxTurns: 1 },
+  harness: { prompt: "reply with exactly: OK" },
 });
 
 describe("the runner's own logs", () => {
@@ -64,7 +64,7 @@ describe("the runner's own logs", () => {
     expect(connected.service).toBe("crewbit-runner");
   });
 
-  test("names a Job it took, with the turn budget it was given", async () => {
+  test("names a Job it took, with what the harness asked of it", async () => {
     const { double, seen } = await pairThatLogs();
 
     await double.assign(job("job-1"));
@@ -72,7 +72,8 @@ describe("the runner's own logs", () => {
 
     const [accepted] = said(seen, "job accepted");
     expect(accepted?.stage).toBe("plan");
-    expect(accepted?.max_turns).toBe(1);
+    expect(accepted?.job_id).toBe("job-1");
+    expect(accepted?.checkout).toBe(false);
   });
 
   test("reports whether the workspace got a repository or an empty directory", async () => {

@@ -109,7 +109,7 @@ describe("assigning a job", () => {
       runId: "run-1",
       stage: "code",
       context: {},
-      harness: { prompt: "do the thing", maxTurns: 10 },
+      harness: { prompt: "do the thing" },
     });
 
     expect(result).toEqual({ accepted: true });
@@ -128,7 +128,7 @@ describe("assigning a job", () => {
       runId: "run-1",
       stage: "code",
       context: {},
-      harness: { prompt: "do the thing", maxTurns: 10 },
+      harness: { prompt: "do the thing" },
     });
 
     expect(result).toEqual({ accepted: false, reason: "no_slots" });

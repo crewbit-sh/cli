@@ -40,7 +40,7 @@ const job = (jobId: string) => ({
   runId: "run-1",
   stage: "plan" as const,
   context: {},
-  harness: { prompt: "reply with exactly: OK", maxTurns: 1 },
+  harness: { prompt: "reply with exactly: OK" },
 });
 
 describe("draining a runner", () => {

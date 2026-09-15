@@ -22,7 +22,7 @@ export type OutcomeInput = {
    * what makes the fix loop chase a criterion the code already satisfies.
    */
   problem?: "failed";
-  /** The engine's own answer: whether it finished, and whether it ran out of turns. */
+  /** The engine's own answer: whether it finished, and whether it ran out of budget. */
   result: { ok: boolean; ceiling?: boolean };
   /** What the Job declared about which file means what. */
   artifacts?: JobAssignParams["artifacts"];
@@ -62,7 +62,7 @@ export function decide(input: OutcomeInput): Decided {
 
 function reported({ problem, result, artifacts, collected }: OutcomeInput): Outcome {
   if (problem) return problem;
-  // A run that stopped at its ceiling is `partial` whichever file it wrote,
+  // A run that stopped at its budget is `partial` whichever file it wrote,
   // including none and including `pr-body.md`. Incomplete-by-budget is not
   // broken, and a fix round can solve one and not the other.
   if (result.ceiling) return "partial";

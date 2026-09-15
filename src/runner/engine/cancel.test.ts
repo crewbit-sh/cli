@@ -75,7 +75,6 @@ describe("aborting an engine run", () => {
     const run = engine.run({
       prompt: "go",
       cwd: tmpdir(),
-      maxTurns: 1,
       signal: abort.signal,
       onEvent: () => {},
     });
@@ -98,7 +97,6 @@ describe("aborting an engine run", () => {
     const run = engine.run({
       prompt: "go",
       cwd: tmpdir(),
-      maxTurns: 1,
       signal: abort.signal,
       onEvent: () => {},
     });
@@ -116,7 +114,6 @@ describe("aborting an engine run", () => {
     const result = await engine.run({
       prompt: "go",
       cwd: tmpdir(),
-      maxTurns: 1,
       signal: AbortSignal.abort(),
       onEvent: () => {},
     });

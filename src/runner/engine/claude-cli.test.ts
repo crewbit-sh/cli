@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { buildArgs, buildEnv } from "./claude-cli.ts";
 
-const base = { prompt: "hi", cwd: "/tmp", maxTurns: 4, onEvent: () => {} };
+const base = { prompt: "hi", cwd: "/tmp", onEvent: () => {} };
 
 describe("buildArgs", () => {
   test("always streams, always scopes the settings", () => {
@@ -11,16 +11,6 @@ describe("buildArgs", () => {
     expect(args.join(" ")).toContain("--output-format stream-json");
     // The developer's global CLAUDE.md and skills are not part of the Job.
     expect(args.join(" ")).toContain("--setting-sources project");
-  });
-
-  test("bounds the turns when the harness gave one", () => {
-    expect(buildArgs(base).join(" ")).toContain("--max-turns 4");
-  });
-
-  test("omits --max-turns when the harness gave none, so the engine runs uncapped", () => {
-    const { maxTurns: _maxTurns, ...noCeiling } = base;
-
-    expect(buildArgs(noCeiling).join(" ")).not.toContain("--max-turns");
   });
 
   test("does not pass the prompt as an argument", () => {
@@ -36,6 +26,21 @@ describe("buildArgs", () => {
     expect(args).not.toContain("--permission-mode");
     expect(args).not.toContain("--resume");
     expect(args).not.toContain("--max-budget-usd");
+  });
+
+  test("never bounds the turns, whatever else the run asks for", () => {
+    // There is no turn ceiling left to pass: the per-project budget replaced it,
+    // and `--max-budget-usd` below is what a bounded run gets instead.
+    const asked = buildArgs({
+      ...base,
+      model: "sonnet",
+      allowedTools: ["Read"],
+      permissionMode: "acceptEdits",
+      maxBudgetUsd: 5,
+    }).join(" ");
+
+    expect(asked).not.toContain("--max-turns");
+    expect(asked).toContain("--max-budget-usd 5");
   });
 
   // #15: the developer account's claude.ai connectors and MCP servers are

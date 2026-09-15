@@ -76,6 +76,11 @@ Its version comes from a bump computed over the commits since the last
 `v*` tag — `feat:` a minor, `fix:` a patch — written to `package.json`,
 `CHANGELOG.md` and `RUNNER_VERSION` before anything is tagged or published.
 
+A branch with news and no version number for it yet writes it under an
+`## Unreleased` heading, and the release replaces that section with the
+generated one: the commit subject is still what ships, so the preview never
+becomes a second copy of it.
+
 That is the opposite contract from
 [`crewbit-sh/protocol`](https://github.com/crewbit-sh/protocol), where
 `CHANGELOG.md` is what a person edits and the workflow only checks that its

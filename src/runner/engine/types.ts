@@ -23,9 +23,9 @@ export type EngineResult = {
   subtype: string;
   terminalReason: string;
   /**
-   * The run stopped because it exhausted its turn or budget ceiling, rather
-   * than breaking. Set only when that is what happened, so an engine that never
-   * produced a result is never mistaken for one that ran out of room.
+   * The run stopped because it exhausted its budget, rather than breaking. Set
+   * only when that is what happened, so an engine that never produced a result
+   * is never mistaken for one that ran out of room.
    */
   ceiling?: boolean;
   /**
@@ -39,12 +39,14 @@ export type EngineResult = {
 export type EngineRun = {
   prompt: string;
   cwd: string;
-  /** No ceiling when omitted: the engine runs until it finishes or hits its budget. */
-  maxTurns?: number;
   allowedTools?: string[];
   permissionMode?: string;
   model?: string;
-  /** Spend ceiling for the run. Hitting it is a `partial` outcome, not a failure. */
+  /**
+   * The run's only ceiling, and the whole of what bounds it: crewbit-v2#303
+   * replaced the turn ceiling with this. Hitting it is a `partial` outcome, not
+   * a failure.
+   */
   maxBudgetUsd?: number;
   /**
    * Stops the run. An engine that spawns subprocesses must take the whole group

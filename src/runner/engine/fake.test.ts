@@ -5,7 +5,6 @@ import type { EngineEvent } from "./types.ts";
 const run = {
   prompt: "say something",
   cwd: "/tmp",
-  maxTurns: 1,
   onEvent: () => {},
 };
 
