@@ -11,6 +11,7 @@ import { spawn } from "node:child_process";
 import { existsSync, mkdtempSync, utimesSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { ENGINE_NAMES } from "./commands/runner.ts";
 
 const CLI = new URL("cli.ts", import.meta.url).pathname;
 
@@ -368,8 +369,9 @@ describe("what the binary is asked to do", () => {
     const { out } = await run("--help");
 
     expect(out).toContain("--engine");
-    expect(out).toContain("claude-cli");
-    expect(out).toContain("fake");
+    // Built from the list rather than written out: an engine nobody can find
+    // in `--help` is one nobody will type.
+    for (const name of ENGINE_NAMES) expect(out).toContain(name);
   });
 
   test("--help names neither `--fake` nor Claude Code as the only thing that runs", async () => {
