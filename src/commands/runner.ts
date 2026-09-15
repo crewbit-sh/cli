@@ -3,7 +3,7 @@ import { newestRelease } from "../latest.ts";
 import { createLogger, type Logger } from "../log.ts";
 import { claudeCliEngine } from "../runner/engine/claude-cli.ts";
 import { fakeEngine } from "../runner/engine/fake.ts";
-import type { EngineEvent } from "../runner/engine/types.ts";
+import type { Engine, EngineEvent } from "../runner/engine/types.ts";
 import { REFUSED_HANDSHAKE, RUNNER_VERSION, startRunner } from "../runner/index.ts";
 import { outdatedNotice } from "../version.ts";
 
@@ -12,6 +12,57 @@ export const RUNNER_USAGE = `  --token <token>  credential minted on the server'
   --slots <n>      how many Jobs to run at once (default 1)
   --fake           replay a recorded stream instead of spending tokens
   --quiet          only report Job outcomes, not the transcript`;
+
+/**
+ * The engines an operator can name. These are the `kind` strings the engine
+ * itself reports and the handshake already sends to the server
+ * (`src/runner/index.ts`), so what somebody types and what the server shows
+ * them for the same Job is one vocabulary rather than two spellings needing a
+ * mapping between them.
+ */
+export const ENGINE_NAMES = ["claude-cli", "fake"] as const;
+
+export type EngineName = (typeof ENGINE_NAMES)[number];
+
+/** Only the two flags the answer depends on, so the resolver takes nothing else. */
+export type EngineFlags = { engine?: string; fake?: boolean };
+
+const ENGINES: Record<EngineName, () => Engine> = {
+  "claude-cli": () => claudeCliEngine(),
+  fake: () => fakeEngine(),
+};
+
+/** Builds the engine a name stands for. Nothing is spawned until a Job runs. */
+export function engineNamed(name: EngineName): Engine {
+  return ENGINES[name]();
+}
+
+/**
+ * argv to an engine name, and nothing else: no socket, no engine and no
+ * process, which is what lets every branch be reached from a table.
+ *
+ * `--fake` is consulted only when `--engine` is absent. `--engine` did not
+ * exist in 0.12.0, so no script written against the old flag carries both, and
+ * argv with both was typed by somebody who knows the new one. The failure
+ * directions are not symmetric either: the other rule makes
+ * `--engine claude-cli --fake` a runner that dials a real server, takes real
+ * Jobs and completes them out of a recording.
+ */
+export function resolveEngineName(
+  values: EngineFlags,
+): { ok: true; value: EngineName } | { ok: false; message: string } {
+  if (values.engine === undefined) return { ok: true, value: values.fake ? "fake" : "claude-cli" };
+  const named = ENGINE_NAMES.find((name) => name === values.engine);
+  if (!named) {
+    // Built from the list, so a third engine names itself here the day it is
+    // added rather than the day somebody remembers this sentence.
+    return {
+      ok: false,
+      message: `--engine has no "${values.engine}": the engines are ${ENGINE_NAMES.join(", ")}`,
+    };
+  }
+  return { ok: true, value: named };
+}
 
 /**
  * The agent's own stream, through the given logger. Exported so a test can
