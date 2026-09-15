@@ -10,7 +10,7 @@ import { outdatedNotice } from "../version.ts";
 export const RUNNER_USAGE = `  --token <token>  credential minted on the server's credentials page, or $CREWBIT_TOKEN
   --server <url>   where to dial (default wss://d.crewbit.sh/runner/v1)
   --slots <n>      how many Jobs to run at once (default 1)
-  --fake           replay a recorded stream instead of spending tokens
+  --engine <name>  what runs a Job: claude-cli (default), or fake to replay a recording
   --quiet          only report Job outcomes, not the transcript`;
 
 /**
