@@ -49,6 +49,7 @@ describe("what the package publishes", () => {
       "buildEnv",
       "claudeCliEngine",
       "consumeStream",
+      "copilotCliEngine",
       "createLogger",
       "errorFields",
       "failedResult",
