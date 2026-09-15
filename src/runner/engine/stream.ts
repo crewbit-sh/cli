@@ -240,8 +240,14 @@ function hitCeiling(subtype: string, terminalReason: string): boolean {
 
 const SUMMARY_MAX = 120;
 
-/** Whichever argument identifies the call, so a transcript line reads at a glance. */
-function summarise(input: Record<string, unknown> | undefined): string | undefined {
+/**
+ * Whichever argument identifies the call, so a transcript line reads at a
+ * glance. Exported alongside {@link shorten} because `copilot-stream.ts` wants
+ * both: the keys below are not Claude's alone - `view` names a `path` and
+ * `bash` a `command` - and a second copy of a summary rule is how two engines
+ * come to abbreviate the same path two ways.
+ */
+export function summarise(input: Record<string, unknown> | undefined): string | undefined {
   if (!input) return undefined;
   for (const key of ["file_path", "path", "command", "pattern", "url", "description"]) {
     const value = input[key];
@@ -255,7 +261,7 @@ function summarise(input: Record<string, unknown> | undefined): string | undefin
  * only the tail throws away the filename, which is the whole reason the
  * summary exists.
  */
-function shorten(value: string): string {
+export function shorten(value: string): string {
   if (value.length <= SUMMARY_MAX) return value;
   const head = Math.ceil((SUMMARY_MAX - 3) / 2);
   return `${value.slice(0, head)}...${value.slice(head - (SUMMARY_MAX - 3))}`;
