@@ -1,10 +1,6 @@
-import { spawn } from "node:child_process";
-import { createInterface } from "node:readline";
+import { spawnLines } from "./spawn.ts";
 import { consumeStream, failedResult } from "./stream.ts";
 import type { Engine, EngineResult, EngineRun } from "./types.ts";
-
-/** How much stderr to keep for the failure report. */
-const STDERR_TAIL_LINES = 40;
 
 export type ClaudeCliOptions = { binary?: string; version?: string };
 
@@ -77,72 +73,42 @@ export function buildEnv(source: NodeJS.ProcessEnv): Record<string, string> {
   return env;
 }
 
+/**
+ * What is left of this once `spawn.ts` owns the process: the engine's argv, its
+ * environment, the parser, and the words for each way a run can end. The
+ * `terminalReason`s below are the vocabulary the runner reads - `reason.ts`
+ * decides what is worth retrying from them - so they stay here rather than in a
+ * module that knows nothing about Jobs.
+ */
 async function spawnAndParse(binary: string, run: EngineRun): Promise<EngineResult> {
-  if (run.signal?.aborted) return failedResult("cancelled before the engine started", "cancelled");
-
-  const child = spawn(binary, buildArgs(run), {
-    cwd: run.cwd,
-    env: buildEnv(process.env),
-    stdio: ["pipe", "pipe", "pipe"],
-    // Its own process group, so cancelling can signal the whole tree. Measured:
-    // a plain kill(pid) leaves a grandchild running, and `claude` spawns one per
-    // tool call, which would keep the workspace busy after the Job is gone.
-    detached: true,
-  });
-
-  let cancelled = false;
-  const cancel = () => {
-    cancelled = true;
-    // Negative pid means the group. Guard: the child may already be gone, and
-    // an ESRCH here would surface as a failure the caller cannot act on.
-    try {
-      if (child.pid) process.kill(-child.pid, "SIGTERM");
-    } catch {
-      /* already dead */
-    }
-  };
-  run.signal?.addEventListener("abort", cancel, { once: true });
-
-  // Stage prompts run to thousands of lines; argv has a hard size limit.
-  child.stdin.end(run.prompt);
-
-  const stderr: string[] = [];
-  child.stderr.setEncoding("utf8");
-  child.stderr.on("data", (chunk: string) => {
-    for (const line of chunk.split("\n")) {
-      if (!line.trim()) continue;
-      if (stderr.length >= STDERR_TAIL_LINES) stderr.shift();
-      stderr.push(line);
-    }
-  });
-
-  const spawnFailure = new Promise<Error>((resolve) => child.on("error", resolve));
-  const exit = new Promise<{ code: number | null; signal: NodeJS.Signals | null }>((resolve) =>
-    child.on("close", (code, signal) => resolve({ code, signal })),
+  const outcome = await spawnLines(
+    {
+      binary,
+      args: buildArgs(run),
+      cwd: run.cwd,
+      env: buildEnv(process.env),
+      // Stage prompts run to thousands of lines; argv has a hard size limit.
+      stdin: run.prompt,
+      signal: run.signal,
+    },
+    (lines) => consumeStream(lines, run.onEvent),
   );
 
-  const lines = createInterface({ input: child.stdout, crlfDelay: Number.POSITIVE_INFINITY });
-  const parsed = await Promise.race([
-    consumeStream(lines, run.onEvent),
-    spawnFailure.then((error) => error),
-  ]);
-
-  if (parsed instanceof Error) {
-    run.signal?.removeEventListener("abort", cancel);
-    return failedResult(`could not start ${binary}: ${parsed.message}`, "spawn_failed");
+  if (outcome.kind === "cancelled_before_start") {
+    return failedResult("cancelled before the engine started", "cancelled");
   }
-
-  const { code, signal } = await exit;
-  run.signal?.removeEventListener("abort", cancel);
+  if (outcome.kind === "spawn_failed") {
+    return failedResult(`could not start ${binary}: ${outcome.error.message}`, "spawn_failed");
+  }
 
   // A result that arrived before the cancel landed still counts: the work was
   // done, and discarding it would be the one thing worse than stopping late.
-  if (parsed) return parsed;
+  if (outcome.value) return outcome.value;
 
-  if (cancelled) return failedResult(`${binary} was cancelled`, "cancelled");
+  if (outcome.cancelled) return failedResult(`${binary} was cancelled`, "cancelled");
 
   // The stream ended without a result: the engine died mid-run.
-  const how = signal ? `killed by ${signal}` : `exited with code ${code}`;
-  const tail = stderr.length ? `\n${stderr.join("\n")}` : "";
+  const how = outcome.signal ? `killed by ${outcome.signal}` : `exited with code ${outcome.code}`;
+  const tail = outcome.stderr.length ? `\n${outcome.stderr.join("\n")}` : "";
   return failedResult(`${binary} ${how} before returning a result${tail}`, "no_result");
 }
