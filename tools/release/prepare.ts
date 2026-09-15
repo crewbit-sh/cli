@@ -23,6 +23,7 @@ import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { parseArgs } from "node:util";
 import { type Bump, bumpFor, nextVersion } from "./bump.ts";
+import { withRelease } from "./changelog.ts";
 
 const { values } = parseArgs({ options: { apply: { type: "boolean", default: false } } });
 
@@ -79,15 +80,10 @@ if (!values.apply) {
 
 writeFileSync("package.json", `${JSON.stringify({ ...manifest, version }, null, 2)}\n`);
 
-// Inserted before the first `## ` heading rather than after the first
-// paragraph: this file's intro is three paragraphs (title, what this is,
-// how upgrading works), not one, and splitting on the first blank line — what
-// the service's still does, moves them all below the new section.
+// Where the section lands, and what becomes of an `## Unreleased` preview, is
+// `changelog.ts`: it is the one part of this script a test can call.
 const changelog = existsSync("CHANGELOG.md") ? readFileSync("CHANGELOG.md", "utf8") : "# crewbit\n";
-const at = changelog.search(/^## /m);
-const [before, after] =
-  at === -1 ? [changelog.trimEnd(), ""] : [changelog.slice(0, at).trimEnd(), changelog.slice(at)];
-writeFileSync("CHANGELOG.md", [before, notes, after].filter(Boolean).join("\n\n"));
+writeFileSync("CHANGELOG.md", withRelease(changelog, notes));
 
 const index = readFileSync("src/runner/index.ts", "utf8");
 const withVersion = index.replace(
