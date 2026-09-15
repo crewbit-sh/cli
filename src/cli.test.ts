@@ -85,6 +85,29 @@ describe("what the binary is asked to do", () => {
     expect(existsSync(fresh)).toBe(true);
   });
 
+  test("`runner --engine` with a name nobody offers stops before anything else", async () => {
+    const { code, out, err } = await run("runner", "--engine", "wibble");
+    const said = `${out}${err}`;
+
+    expect(code).toBe(1);
+    expect(said).toContain("wibble");
+    expect(said).toContain("claude-cli");
+    expect(said).toContain("fake");
+    // The credential is asked for after the engine, and the socket after that,
+    // so neither message appearing is the proof it stopped at the name.
+    expect(said).not.toContain("no token given");
+    expect(said).not.toContain("could not");
+  });
+
+  test("`runner --engine claude-cli` reaches the same place `runner` reaches", async () => {
+    // Naming the default engine changes nothing else: with no token anywhere
+    // this is the missing credential, exactly as the bare `runner` case above.
+    const { code, out } = await run("runner", "--engine", "claude-cli");
+
+    expect(code).toBe(1);
+    expect(out).toContain("no token given");
+  });
+
   test("the old form says what to type now instead of doing nothing", async () => {
     // `crewbit --token …` was the whole command until this. Somebody has it in a
     // service file, and the worst answer is a binary that starts, takes no work
@@ -339,6 +362,23 @@ describe("what the binary is asked to do", () => {
     expect(out).toContain("crewbit spec code");
     // `run` is a working alias, kept quiet: naming it here would advertise it.
     expect(out).not.toContain("spec run");
+  });
+
+  test("--help names --engine and the engines it takes", async () => {
+    const { out } = await run("--help");
+
+    expect(out).toContain("--engine");
+    expect(out).toContain("claude-cli");
+    expect(out).toContain("fake");
+  });
+
+  test("--help names neither `--fake` nor Claude Code as the only thing that runs", async () => {
+    const { out } = await run("--help");
+
+    // `--fake` is a working alias, kept quiet the same way `spec run` is:
+    // naming it would hand somebody a second spelling to discover.
+    expect(out).not.toContain("--fake");
+    expect(out).not.toContain("with your own Claude Code");
   });
 
   test("`run view <id>` refuses --events that is not a non-negative whole number", async () => {

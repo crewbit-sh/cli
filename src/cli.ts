@@ -4,7 +4,7 @@ import { RUNNER_USAGE, runRunner } from "./commands/runner.ts";
 import { runSpec, SPEC_USAGE } from "./commands/spec.ts";
 import { RUNNER_VERSION } from "./runner/index.ts";
 
-const USAGE = `crewbit - run Crewbit work with your own Claude Code
+const USAGE = `crewbit - run Crewbit work with your own coding agent
 
   crewbit runner [options]      connect and execute the work you are given
 ${RUNNER_USAGE}

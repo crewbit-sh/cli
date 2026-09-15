@@ -8,6 +8,10 @@ nothing that was in flight. Stop it a second time and it exits straight away.
 
 ## Unreleased
 
+### Added
+
+- `crewbit runner --engine <name>` chooses what runs a Job: `claude-cli` by default, or `fake` to replay a recording
+
 ### Fixed
 
 - the turn ceiling is gone from the runner, and no Job is reported as stopping at one

@@ -1,7 +1,7 @@
 # crewbit
 
 The [Crewbit](https://crewbit.sh) runner. It connects to a Crewbit server,
-executes one Job at a time with your own Claude Code, and reports back.
+executes one Job at a time with your own coding agent, and reports back.
 
 It holds no provider credential, has no awareness of an issue tracker, and
 decides no state: everything it needs arrives inside the Job, and everything
@@ -20,6 +20,10 @@ Download the binary for your platform from the
 ```
 crewbit runner --token <token minted on your Crewbit credentials page> --slots 1
 ```
+
+`--engine <name>` is what runs a Job: `claude-cli` is the default and needs
+Claude Code on the machine, and `fake` replays a recorded stream instead of
+spending tokens.
 
 Run it again after upgrading; stopping it once finishes whatever Job it is
 holding before it exits, and a second stop exits immediately.
