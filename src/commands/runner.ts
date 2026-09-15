@@ -98,6 +98,7 @@ export async function runRunner(argv: string[]): Promise<void> {
       token: { type: "string" },
       server: { type: "string", default: "wss://d.crewbit.sh/runner/v1" },
       slots: { type: "string", default: "1" },
+      engine: { type: "string" },
       fake: { type: "boolean", default: false },
       quiet: { type: "boolean", default: false },
     },
@@ -105,6 +106,14 @@ export async function runRunner(argv: string[]): Promise<void> {
 
   const token = values.token ?? process.env.CREWBIT_TOKEN;
   const log = createLogger("crewbit-runner");
+
+  // Before the release check's fetch and before `startRunner`, so a name
+  // nobody offers costs neither a request nor a dialled socket.
+  const engine = resolveEngineName(values);
+  if (!engine.ok) {
+    log.error(engine.message);
+    process.exit(1);
+  }
 
   // Here rather than inside `startRunner`, so the library nobody's tests should
   // have to take offline never reaches a third party: the service drives this
@@ -123,7 +132,7 @@ export async function runRunner(argv: string[]): Promise<void> {
     // The env var is what a service manager sets; the flag is what a human types.
     token,
     slots: Number(values.slots),
-    engine: values.fake ? fakeEngine() : claudeCliEngine(),
+    engine: engineNamed(engine.value),
     log,
     // Two formats on one stdout would hand a collector mixed content, and on a
     // server that is the only record of what the agent did.
