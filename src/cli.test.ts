@@ -92,22 +92,27 @@ describe("what the binary is asked to do", () => {
 
     expect(code).toBe(1);
     expect(said).toContain("wibble");
-    expect(said).toContain("claude-cli");
-    expect(said).toContain("fake");
+    for (const name of ENGINE_NAMES) expect(said).toContain(name);
     // The credential is asked for after the engine, and the socket after that,
     // so neither message appearing is the proof it stopped at the name.
     expect(said).not.toContain("no token given");
     expect(said).not.toContain("could not");
   });
 
-  test("`runner --engine claude-cli` reaches the same place `runner` reaches", async () => {
-    // Naming the default engine changes nothing else: with no token anywhere
-    // this is the missing credential, exactly as the bare `runner` case above.
-    const { code, out } = await run("runner", "--engine", "claude-cli");
+  // Every name the flag offers, so the answer to "does this one work" is the
+  // same shape for all of them: with no token anywhere this is the missing
+  // credential, exactly as the bare `runner` case above. Naming an engine
+  // changes nothing else, and an engine that could not even be built would
+  // stop before here.
+  test.each([...ENGINE_NAMES])(
+    "`runner --engine %s` reaches the same place `runner` reaches",
+    async (name) => {
+      const { code, out } = await run("runner", "--engine", name);
 
-    expect(code).toBe(1);
-    expect(out).toContain("no token given");
-  });
+      expect(code).toBe(1);
+      expect(out).toContain("no token given");
+    },
+  );
 
   test("the old form says what to type now instead of doing nothing", async () => {
     // `crewbit --token …` was the whole command until this. Somebody has it in a
