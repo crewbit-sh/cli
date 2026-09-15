@@ -1,7 +1,11 @@
 /**
  * Cancelling has to stop the whole process group, not just the process the
- * runner spawned. A `claude` run spawns subprocesses for tool calls, and
+ * runner spawned. Either engine spawns subprocesses for tool calls, and
  * signalling only the parent leaves them holding the workspace.
+ *
+ * Both engines, from one table: the group kill lives in `spawn.ts` and is the
+ * same code either way, which is the whole point of it being one module. A
+ * second copy of this proof would only ever prove the copy.
  *
  * Needs permission to list processes (`ps`), which a sandbox may deny.
  */
@@ -12,6 +16,8 @@ import { chmodSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { claudeCliEngine } from "./claude-cli.ts";
+import { copilotCliEngine } from "./copilot-cli.ts";
+import type { Engine } from "./types.ts";
 
 const dirs: string[] = [];
 const markers: string[] = [];
@@ -33,10 +39,36 @@ function reap(marker: string): Promise<void> {
 }
 
 /**
+ * One row per engine. `line` is a line of that engine's own stream, so the
+ * stand-in is something the engine under test could have been reading when the
+ * cancel arrived rather than noise it ignored.
+ */
+const ENGINES: Array<{
+  name: string;
+  build: (binary: string) => Engine;
+  line: string;
+  /** A distinctive duration, so the process count cannot pick up anything else. */
+  marker: number;
+}> = [
+  {
+    name: "claude-cli",
+    build: (binary) => claudeCliEngine({ binary }),
+    line: '{"type":"assistant","message":{"content":[{"type":"text","text":"working"}]}}',
+    marker: 31337,
+  },
+  {
+    name: "copilot-cli",
+    build: (binary) => copilotCliEngine({ binary, version: "test" }),
+    line: '{"type":"assistant.message","data":{"content":"working","toolRequests":[]}}',
+    marker: 31340,
+  },
+];
+
+/**
  * Stands in for the engine binary: ignores its arguments, emits one stream line,
  * backgrounds a grandchild the way a tool call would, and then waits.
  */
-function engineStandIn(marker: string): string {
+function engineStandIn(marker: string, line: string): string {
   const dir = mkdtempSync(join(tmpdir(), "crewbit-cancel-"));
   dirs.push(dir);
   markers.push(marker);
@@ -44,7 +76,7 @@ function engineStandIn(marker: string): string {
   writeFileSync(
     path,
     `#!/bin/sh
-echo '{"type":"assistant","message":{"content":[{"type":"text","text":"working"}]}}'
+echo '${line}'
 sleep ${marker} &
 sleep 300
 `,
@@ -65,11 +97,10 @@ async function grandchildren(marker: string): Promise<number> {
   return Number(out.trim());
 }
 
-describe("aborting an engine run", () => {
+describe.each(ENGINES)("aborting a $name run", ({ build, line, marker }) => {
   test("kills the subprocesses it spawned, not just the process itself", async () => {
-    // A distinctive duration, so the count cannot pick up anything else.
-    const marker = "31337";
-    const engine = claudeCliEngine({ binary: engineStandIn(marker) });
+    const mark = String(marker);
+    const engine = build(engineStandIn(mark, line));
     const abort = new AbortController();
 
     const run = engine.run({
@@ -79,19 +110,19 @@ describe("aborting an engine run", () => {
       onEvent: () => {},
     });
 
-    await waitFor(() => grandchildren(marker).then((n) => n > 0));
+    await waitFor(() => grandchildren(mark).then((n) => n > 0));
     abort.abort();
     const result = await run;
 
     // Measured before this existed: a plain kill(pid) leaves the grandchild
     // running, and only detached + kill(-pid) takes the group down.
-    await waitFor(() => grandchildren(marker).then((n) => n === 0));
-    expect(await grandchildren(marker)).toBe(0);
+    await waitFor(() => grandchildren(mark).then((n) => n === 0));
+    expect(await grandchildren(mark)).toBe(0);
     expect(result.ok).toBe(false);
   });
 
   test("reports the interruption rather than a success it cannot substantiate", async () => {
-    const engine = claudeCliEngine({ binary: engineStandIn("31338") });
+    const engine = build(engineStandIn(String(marker + 1), line));
     const abort = new AbortController();
 
     const run = engine.run({
@@ -109,7 +140,8 @@ describe("aborting an engine run", () => {
   });
 
   test("a signal already aborted stops before spawning anything", async () => {
-    const engine = claudeCliEngine({ binary: engineStandIn("31339") });
+    const mark = String(marker + 2);
+    const engine = build(engineStandIn(mark, line));
 
     const result = await engine.run({
       prompt: "go",
@@ -120,7 +152,7 @@ describe("aborting an engine run", () => {
 
     expect(result.ok).toBe(false);
     expect(result.terminalReason).toBe("cancelled");
-    expect(await grandchildren("31339")).toBe(0);
+    expect(await grandchildren(mark)).toBe(0);
   });
 });
 
