@@ -6,16 +6,16 @@ Upgrading is replacing the binary and starting it again. Stop the old one once
 and it finishes what it is holding before it exits, so an upgrade costs you
 nothing that was in flight. Stop it a second time and it exits straight away.
 
-## Unreleased
+## 0.13.0
 
 ### Added
 
-- `crewbit runner --engine <name>` chooses what runs a Job: `claude-cli` by default, `copilot-cli` for a machine whose seat is GitHub Copilot, or `fake` to replay a recording
-- a Copilot Job runs under a home of its own, so the machine's custom instructions and MCP servers are not part of it, and reports what it cost in the AI credits it spent
+- a parser for Copilot's JSONL, against a recorded run (#47)
+- the runner takes --engine <name> (#45)
 
 ### Fixed
 
-- the turn ceiling is gone from the runner, and no Job is reported as stopping at one
+- the turn ceiling is gone from the runner, and no Job is reported as stopping at one (#42)
 
 ## 0.12.0
 
