@@ -5,6 +5,7 @@
 
 export { createLogger, errorFields, type Logger } from "./log.ts";
 export { buildArgs, buildEnv, claudeCliEngine } from "./runner/engine/claude-cli.ts";
+export { copilotCliEngine } from "./runner/engine/copilot-cli.ts";
 export { type FakeEngine, fakeEngine } from "./runner/engine/fake.ts";
 export { consumeStream, failedResult, parseLine } from "./runner/engine/stream.ts";
 export type { Engine, EngineEvent, EngineResult, EngineRun } from "./runner/engine/types.ts";

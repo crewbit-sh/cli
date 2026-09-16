@@ -2,6 +2,7 @@ import { parseArgs } from "node:util";
 import { newestRelease } from "../latest.ts";
 import { createLogger, type Logger } from "../log.ts";
 import { claudeCliEngine } from "../runner/engine/claude-cli.ts";
+import { copilotCliEngine } from "../runner/engine/copilot-cli.ts";
 import { fakeEngine } from "../runner/engine/fake.ts";
 import type { Engine, EngineEvent } from "../runner/engine/types.ts";
 import { REFUSED_HANDSHAKE, RUNNER_VERSION, startRunner } from "../runner/index.ts";
@@ -10,7 +11,7 @@ import { outdatedNotice } from "../version.ts";
 export const RUNNER_USAGE = `  --token <token>  credential minted on the server's credentials page, or $CREWBIT_TOKEN
   --server <url>   where to dial (default wss://d.crewbit.sh/runner/v1)
   --slots <n>      how many Jobs to run at once (default 1)
-  --engine <name>  what runs a Job: claude-cli (default), or fake to replay a recording
+  --engine <name>  what runs a Job: claude-cli (default), copilot-cli, or fake to replay a recording
   --quiet          only report Job outcomes, not the transcript`;
 
 /**
@@ -20,7 +21,7 @@ export const RUNNER_USAGE = `  --token <token>  credential minted on the server'
  * them for the same Job is one vocabulary rather than two spellings needing a
  * mapping between them.
  */
-export const ENGINE_NAMES = ["claude-cli", "fake"] as const;
+export const ENGINE_NAMES = ["claude-cli", "copilot-cli", "fake"] as const;
 
 export type EngineName = (typeof ENGINE_NAMES)[number];
 
@@ -29,6 +30,7 @@ export type EngineFlags = { engine?: string; fake?: boolean };
 
 const ENGINES: Record<EngineName, () => Engine> = {
   "claude-cli": () => claudeCliEngine(),
+  "copilot-cli": () => copilotCliEngine(),
   fake: () => fakeEngine(),
 };
 

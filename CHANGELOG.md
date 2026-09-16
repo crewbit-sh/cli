@@ -10,7 +10,8 @@ nothing that was in flight. Stop it a second time and it exits straight away.
 
 ### Added
 
-- `crewbit runner --engine <name>` chooses what runs a Job: `claude-cli` by default, or `fake` to replay a recording
+- `crewbit runner --engine <name>` chooses what runs a Job: `claude-cli` by default, `copilot-cli` for a machine whose seat is GitHub Copilot, or `fake` to replay a recording
+- a Copilot Job runs under a home of its own, so the machine's custom instructions and MCP servers are not part of it, and reports what it cost in the AI credits it spent
 
 ### Fixed
 

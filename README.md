@@ -22,8 +22,16 @@ crewbit runner --token <token minted on your Crewbit credentials page> --slots 1
 ```
 
 `--engine <name>` is what runs a Job: `claude-cli` is the default and needs
-Claude Code on the machine, and `fake` replays a recorded stream instead of
-spending tokens.
+Claude Code on the machine, `copilot-cli` needs GitHub Copilot CLI and the seat
+that goes with it, and `fake` replays a recorded stream instead of spending
+tokens.
+
+A Copilot Job runs under a `COPILOT_HOME` of its own, made for the run and
+removed with it, so the machine's own custom instructions and MCP servers are
+not part of what the Job was given. Its cost is reported from the AI credits the
+run spent, at GitHub's documented hundred credits to the dollar; a Job carrying
+a budget runs under `--max-ai-credits`, except below the flag's own floor of 30
+credits, where it runs unbounded rather than being refused.
 
 Run it again after upgrading; stopping it once finishes whatever Job it is
 holding before it exits, and a second stop exits immediately.
