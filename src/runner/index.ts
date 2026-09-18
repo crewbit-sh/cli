@@ -42,6 +42,7 @@ import {
   pushFailureMessage,
   rebaseOntoFreshBase,
   remoteHead,
+  untrackPaperwork,
 } from "./git.ts";
 import { decide } from "./outcome.ts";
 import { preExistingFailures } from "./pre-existing.ts";
@@ -446,6 +447,10 @@ export async function startRunner(options: RunnerOptions): Promise<RunnerHandle>
     inFlight: InFlight,
     job: JobAssignParams,
   ): Promise<{ commits: string[]; artifacts?: Record<string, string>; problem?: "failed" }> {
+    // Belt over the exclude `prepareWorkspace` already set: #384 measured
+    // Copilot committing this Job's own paperwork anyway.
+    await untrackPaperwork(workspace, job.artifacts?.collect ?? []);
+
     // Whatever the agent edited and did not commit. The prompt reserves turns to
     // do this itself; a run that hit the ceiling mid-change did not get to.
     await commitAll(workspace, `crewbit: work in progress for ${job.stage}`);

@@ -19,6 +19,8 @@ import {
   rebaseOntoFreshBase,
   redact,
   remoteHead,
+  trackedUnder,
+  untrackPaperwork,
   withToken,
 } from "./git.ts";
 import { prepareWorkspace } from "./workspace.ts";
@@ -98,13 +100,14 @@ function template(): string {
 async function workspaceOn(
   origin: { url: string; baseBranch: string },
   branch = "crewbit/spec-1",
-  options: { delivers?: boolean } = {},
+  options: { delivers?: boolean; artifacts?: string[] } = {},
 ) {
   const repo = { ...origin, branch, token: "", tokenExpiresAt: "" };
   const workspace = await prepareWorkspace({
     context: {},
     repo,
     delivers: options.delivers ?? true,
+    artifacts: options.artifacts,
   });
   dirs.push(workspace);
   return { workspace, repo };
@@ -398,6 +401,56 @@ describe("what the Job reports back", () => {
     // would then be a diff of nothing asking for review.
     expect(await commitAll(workspace, "nothing changed")).toBe(false);
     expect(await commitsSince(workspace)).toEqual([]);
+  });
+});
+
+describe("untrackPaperwork", () => {
+  test("un-stages this Job's own files even after an engine committed them anyway", async () => {
+    const origin = bareOrigin();
+    const { workspace } = await workspaceOn(origin);
+
+    // Measured on #384's code stage under --engine copilot-cli: `.git/info/exclude`
+    // named both files, and Copilot committed `reading.md` in the same commit as
+    // the real change anyway.
+    writeFileSync(join(workspace, "app.ts"), "export const answer = 43;\n");
+    writeFileSync(join(workspace, "reading.md"), "how I read the spec\n");
+    await commitAll(workspace, "the change, with the paperwork alongside it");
+
+    await untrackPaperwork(workspace, ["pr-body.md", "reading.md"]);
+
+    expect(await trackedUnder(workspace, ["reading.md"])).toEqual([]);
+    // Still tracked: this never touches a file the diff actually needs.
+    expect(await trackedUnder(workspace, ["app.ts"])).toEqual(["app.ts"]);
+    // Still on disk: the Stage reads it back as an artifact after the Job ends.
+    expect(readFileSync(join(workspace, "reading.md"), "utf8")).toBe("how I read the spec\n");
+  });
+
+  test("does nothing when none of the named files are tracked", async () => {
+    const origin = bareOrigin();
+    const { workspace } = await workspaceOn(origin);
+    const before = await head(workspace);
+
+    await untrackPaperwork(workspace, ["pr-body.md", "reading.md"]);
+
+    expect(await head(workspace)).toBe(before);
+  });
+
+  test("the removal is what the ordinary commit picks up", async () => {
+    const origin = bareOrigin();
+    // `artifacts` is what `deliver` really passes: `.git/info/exclude` already
+    // names `pr-body.md`, so `git add -A` below does not put it straight back.
+    const { workspace } = await workspaceOn(origin, "crewbit/spec-1", {
+      artifacts: ["pr-body.md"],
+    });
+    writeFileSync(join(workspace, "pr-body.md"), "done\n");
+    // `-f`: the exclude above refuses a plain `add`, the same way Copilot's own
+    // tool walked past it on #384.
+    await git(["add", "-f", "pr-body.md"], workspace);
+    await git(["commit", "-q", "-m", "the agent's own commit"], workspace);
+
+    await untrackPaperwork(workspace, ["pr-body.md"]);
+    expect(await commitAll(workspace, "crewbit: work in progress for code")).toBe(true);
+    expect(await trackedUnder(workspace, ["pr-body.md"])).toEqual([]);
   });
 });
 

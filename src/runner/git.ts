@@ -308,6 +308,13 @@ export async function trackedUnder(workspace: string, paths: string[]): Promise<
   return out ? out.split("\0").filter(Boolean) : [];
 }
 
+/** `.git/info/exclude` stops `git add -A` from ever staging these; #384 measured Copilot committing `reading.md` anyway. */
+export async function untrackPaperwork(workspace: string, names: string[]): Promise<void> {
+  const tracked = await trackedUnder(workspace, names);
+  if (tracked.length === 0) return;
+  await git(["rm", "--cached", "-q", "--", ...tracked], workspace);
+}
+
 /**
  * Tells git to stop comparing these paths against the worktree.
  *
