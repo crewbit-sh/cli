@@ -6,6 +6,13 @@ Upgrading is replacing the binary and starting it again. Stop the old one once
 and it finishes what it is holding before it exits, so an upgrade costs you
 nothing that was in flight. Stop it a second time and it exits straight away.
 
+## 0.13.1
+
+### Fixed
+
+- a Job's own paperwork no longer lands in the pull request
+- the runner no longer sends Claude's model name to Copilot
+
 ## 0.13.0
 
 ### Added
