@@ -57,8 +57,15 @@ describe("buildCopilotArgs", () => {
     expect(args).not.toContain("--max-turns");
   });
 
-  test("passes through the model the harness asked for", () => {
-    expect(buildCopilotArgs({ ...base, model: "gpt-5" }).join(" ")).toContain("--model gpt-5");
+  // `model` is Claude's vocabulary too, measured against the live CLI: every
+  // stage's harness sends "opus", and `copilot --model opus` refuses to start
+  // ("Model \"opus\" from --model flag is not available."), so forwarding it
+  // fails every code stage rather than narrowing one. Every name this session
+  // tried by hand failed the same way except the CLI's own "auto", so the
+  // engine leaves the choice to that rather than guess a name that happens
+  // to be in Copilot's catalog today.
+  test("ignores the model the harness asked for, which is also another engine's name", () => {
+    expect(buildCopilotArgs({ ...base, model: "opus" }).join(" ")).not.toContain("--model");
   });
 
   // `allowedTools` and `permissionMode` are Claude's vocabulary. A harness

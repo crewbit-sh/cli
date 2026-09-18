@@ -104,6 +104,14 @@ const MIN_AI_CREDITS = 30;
  * Claude's vocabulary: a harness naming `Read` and `Edit` names tools this
  * engine does not have - measured, they are `view`, `bash`, `edit` and so on -
  * so mapping them onto `--available-tools` would narrow a run to nothing.
+ *
+ * `model` is the same problem. Every stage's harness sends a Claude model
+ * name - "opus", measured against a live Job - and `--model opus` is refused
+ * before any JSONL: "Model \"opus\" from --model flag is not available." A
+ * code stage that forwards it never runs at all. Nothing here maps it to a
+ * name in Copilot's own catalog either, because that catalog is read from
+ * nothing measured: every name this session tried by hand was refused the
+ * same way, "auto" excepted, so the flag is left off and `auto` picks.
  */
 export function buildCopilotArgs(run: EngineRun): string[] {
   const args = [
@@ -118,7 +126,6 @@ export function buildCopilotArgs(run: EngineRun): string[] {
     // instructions under their own home are not part of it.
     "--no-custom-instructions",
   ];
-  if (run.model) args.push("--model", run.model);
   const credits = aiCredits(run.maxBudgetUsd);
   if (credits !== undefined) args.push("--max-ai-credits", String(credits));
   return args;
