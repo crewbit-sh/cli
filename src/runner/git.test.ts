@@ -452,6 +452,26 @@ describe("untrackPaperwork", () => {
     expect(await commitAll(workspace, "crewbit: work in progress for code")).toBe(true);
     expect(await trackedUnder(workspace, ["pr-body.md"])).toEqual([]);
   });
+
+  test("leaves alone a name that was already tracked before this Job began", async () => {
+    const origin = bareOrigin();
+    // A file this repository already tracks, whose name happens to collide
+    // with an artifact this Job's own collect list names.
+    advanceBase(origin, { "notes.md": "the old notes\n" });
+    const { workspace } = await workspaceOn(origin);
+
+    // The agent's real edit to it, not paperwork the Stage wrote.
+    writeFileSync(join(workspace, "notes.md"), "the new notes\n");
+    await commitAll(workspace, "the notes, updated");
+
+    await untrackPaperwork(workspace, ["pr-body.md", "notes.md"]);
+
+    // Untracking it here would drop this edit from the commit entirely -
+    // silently, since the file is still on disk and still reads as tracked
+    // right up until the push shows nothing changed.
+    expect(await trackedUnder(workspace, ["notes.md"])).toEqual(["notes.md"]);
+    expect(readFileSync(join(workspace, "notes.md"), "utf8")).toBe("the new notes\n");
+  });
 });
 
 describe("the clone the agent gets", () => {

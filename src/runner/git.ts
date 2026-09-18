@@ -308,11 +308,43 @@ export async function trackedUnder(workspace: string, paths: string[]): Promise<
   return out ? out.split("\0").filter(Boolean) : [];
 }
 
-/** `.git/info/exclude` stops `git add -A` from ever staging these; #384 measured Copilot committing `reading.md` anyway. */
+/**
+ * What a ref's tree holds under a set of pathspecs - the same question
+ * `trackedUnder` answers about the index, asked about a point in history
+ * instead. What `untrackPaperwork` reads to tell a name the agent introduced
+ * from one this repository already tracked before the Job began.
+ */
+export async function trackedAt(
+  ref: string,
+  workspace: string,
+  paths: string[],
+): Promise<string[]> {
+  if (paths.length === 0) return [];
+  const out = await captureRaw(
+    ["ls-tree", "-r", "-z", "--name-only", ref, "--", ...paths],
+    workspace,
+  );
+  return out ? out.split("\0").filter(Boolean) : [];
+}
+
+/**
+ * `.git/info/exclude` stops `git add -A` from ever staging these; #384 measured
+ * Copilot committing `reading.md` anyway.
+ *
+ * Only a name `BASE_REF` did not already track: a repository can legitimately
+ * have a file called `notes.md`, and an agent editing it for real is not the
+ * same event as a Stage writing its own `notes.md` this round. Untracking by
+ * name alone dropped that real edit from the commit - silently, since the file
+ * stays on disk and reads as tracked right up until the push shows nothing
+ * changed.
+ */
 export async function untrackPaperwork(workspace: string, names: string[]): Promise<void> {
   const tracked = await trackedUnder(workspace, names);
   if (tracked.length === 0) return;
-  await git(["rm", "--cached", "-q", "--", ...tracked], workspace);
+  const before = new Set(await trackedAt(BASE_REF, workspace, tracked));
+  const introduced = tracked.filter((name) => !before.has(name));
+  if (introduced.length === 0) return;
+  await git(["rm", "--cached", "-q", "--", ...introduced], workspace);
 }
 
 /**
