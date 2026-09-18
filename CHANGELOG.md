@@ -6,6 +6,12 @@ Upgrading is replacing the binary and starting it again. Stop the old one once
 and it finishes what it is holding before it exits, so an upgrade costs you
 nothing that was in flight. Stop it a second time and it exits straight away.
 
+## 0.13.2
+
+### Fixed
+
+- a real edit to a file that shares its name with a paperwork artifact no longer vanishes from the commit
+
 ## 0.13.1
 
 ### Fixed

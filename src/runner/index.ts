@@ -53,7 +53,7 @@ import { runPrepare, runVerify } from "./verify.ts";
 import { waited } from "./wait.ts";
 import { keptWorkspaceCount, prepareWorkspace, sweepStaleWorkspaces } from "./workspace.ts";
 
-export const RUNNER_VERSION = "0.13.1";
+export const RUNNER_VERSION = "0.13.2";
 /**
  * How a handshake the server answered and declined reads. Exported because the
  * CLI tells this apart from every other way a connect fails: this one means the
